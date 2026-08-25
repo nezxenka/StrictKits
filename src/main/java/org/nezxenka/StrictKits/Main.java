@@ -7,7 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.nezxenka.StrictKits.commands.AdminCommands;
 import org.nezxenka.StrictKits.commands.PlayerCommands;
-import org.nezxenka.StrictKits.config.Lang;
+import org.nezxenka.StrictKits.config.Messages;
 import org.nezxenka.StrictKits.config.Settings;
 import org.nezxenka.StrictKits.gui.KitMenu;
 import org.nezxenka.StrictKits.kit.KitManager;
@@ -27,6 +27,10 @@ import org.nezxenka.StrictKits.util.GUItems;
 import org.nezxenka.StrictKits.util.Messenger;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
 
 public final class Main extends JavaPlugin {
@@ -34,7 +38,7 @@ public final class Main extends JavaPlugin {
     private static Main instance;
 
     private Settings settings;
-    private Lang lang;
+    private Messages messages;
     private DatabaseConfig databaseConfig;
     private StorageProvider storage;
     private CacheProvider cache;
@@ -64,8 +68,7 @@ public final class Main extends JavaPlugin {
         this.kits = new KitManager(new KitStorage(new File(getDataFolder(), "Kits"), getLogger()), players.getWorkers());
         int loaded = kits.loadAll();
 
-        this.kitService = new KitService(kits, players, lang, settings);
-        this.kitMenu = new KitMenu(kits, kitService, players, lang, settings);
+        buildServices();
 
         registerCommands();
         getServer().getPluginManager().registerEvents(new Listeners(this), this);
@@ -98,18 +101,37 @@ public final class Main extends JavaPlugin {
     private void loadConfiguration() {
         FileConfiguration config = getConfig();
         this.settings = new Settings(config);
-        this.lang = new Lang(config);
-        GUItems.load(config);
-        this.databaseConfig = new DatabaseConfig(loadDatabaseConfig());
+        this.messages = new Messages(loadMessages(), getDescription().getVersion());
+        GUItems.load(config, messages);
+        this.databaseConfig = new DatabaseConfig(loadYaml("database.yml"));
     }
 
-    private FileConfiguration loadDatabaseConfig() {
-        File file = new File(getDataFolder(), "database.yml");
-        YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-        java.io.InputStream defaults = getResource("database.yml");
+    private void buildServices() {
+        this.kitService = new KitService(kits, players, messages, settings);
+        this.kitMenu = new KitMenu(kits, kitService, players, messages, settings);
+    }
+
+    private FileConfiguration loadMessages() {
+        File file = new File(getDataFolder(), "messages.yml");
+        YamlConfiguration config = loadYaml("messages.yml");
+        if (config.getDefaults() == null) {
+            return config;
+        }
+        config.options().copyDefaults(true);
+        try {
+            config.save(file);
+        } catch (IOException e) {
+            getLogger().log(Level.WARNING, "Не удалось обновить messages.yml", e);
+        }
+        return config;
+    }
+
+    private YamlConfiguration loadYaml(String name) {
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(new File(getDataFolder(), name));
+        InputStream defaults = getResource(name);
         if (defaults != null) {
             config.setDefaults(YamlConfiguration.loadConfiguration(
-                    new java.io.InputStreamReader(defaults, java.nio.charset.StandardCharsets.UTF_8)));
+                    new InputStreamReader(defaults, StandardCharsets.UTF_8)));
         }
         return config;
     }
@@ -181,13 +203,12 @@ public final class Main extends JavaPlugin {
         reloadConfig();
         FileConfiguration config = getConfig();
         this.settings = new Settings(config);
-        this.lang = new Lang(config);
-        GUItems.load(config);
+        this.messages = new Messages(loadMessages(), getDescription().getVersion());
+        GUItems.load(config, messages);
         Messenger.detect();
         kits.flushAllBlocking();
         kits.loadAll();
-        this.kitService = new KitService(kits, players, lang, settings);
-        this.kitMenu = new KitMenu(kits, kitService, players, lang, settings);
+        buildServices();
         registerCommands();
     }
 
@@ -199,8 +220,8 @@ public final class Main extends JavaPlugin {
         return settings;
     }
 
-    public Lang getLang() {
-        return lang;
+    public Messages getMessages() {
+        return messages;
     }
 
     public KitManager getKits() {

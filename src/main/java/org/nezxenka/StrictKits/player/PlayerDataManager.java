@@ -307,13 +307,25 @@ public final class PlayerDataManager {
         loaded.clear();
     }
 
-    public String stats() {
+    public int getLoadedCount() {
+        return loaded.size();
+    }
+
+    public long getCacheHits() {
+        return cacheHits.get();
+    }
+
+    public long getCacheLookups() {
+        return cacheHits.get() + cacheMisses.get();
+    }
+
+    public long getCacheHitRatio() {
         long hits = cacheHits.get();
-        long misses = cacheMisses.get();
-        long total = hits + misses;
-        long ratio = total == 0L ? 0L : hits * 100L / total;
-        return "в памяти: " + loaded.size()
-                + ", попаданий в кэш: " + hits + "/" + total + " (" + ratio + "%)"
-                + ", записей в БД: " + writes.get();
+        long total = hits + cacheMisses.get();
+        return total == 0L ? 0L : hits * 100L / total;
+    }
+
+    public long getWrites() {
+        return writes.get();
     }
 }

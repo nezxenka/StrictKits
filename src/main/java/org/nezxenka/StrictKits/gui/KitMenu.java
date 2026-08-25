@@ -5,7 +5,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.nezxenka.StrictKits.config.Lang;
+import org.nezxenka.StrictKits.config.Messages;
 import org.nezxenka.StrictKits.config.Settings;
 import org.nezxenka.StrictKits.kit.Kit;
 import org.nezxenka.StrictKits.kit.KitManager;
@@ -13,6 +13,7 @@ import org.nezxenka.StrictKits.kit.KitService;
 import org.nezxenka.StrictKits.player.PlayerData;
 import org.nezxenka.StrictKits.player.PlayerDataManager;
 import org.nezxenka.StrictKits.util.GUItems;
+import org.nezxenka.StrictKits.util.Messenger;
 import org.nezxenka.StrictKits.util.TimeFormat;
 
 import java.util.ArrayList;
@@ -27,21 +28,21 @@ public final class KitMenu {
     private final KitManager kits;
     private final KitService service;
     private final PlayerDataManager players;
-    private final Lang lang;
+    private final Messages messages;
     private final Settings settings;
 
-    public KitMenu(KitManager kits, KitService service, PlayerDataManager players, Lang lang, Settings settings) {
+    public KitMenu(KitManager kits, KitService service, PlayerDataManager players, Messages messages, Settings settings) {
         this.kits = kits;
         this.service = service;
         this.players = players;
-        this.lang = lang;
+        this.messages = messages;
         this.settings = settings;
     }
 
     public boolean open(Player player, int requestedPage) {
         List<Kit> visible = visibleKits(player);
         if (visible.isEmpty()) {
-            player.sendMessage(kits.size() == 0 ? lang.getNoKitServer() : lang.getNoAccess());
+            Messenger.send(player, kits.size() == 0 ? messages.getNoKitsOnServer() : messages.getNoAccess());
             return false;
         }
 
@@ -54,7 +55,7 @@ public final class KitMenu {
 
         Kit[] slots = new Kit[size];
         MenuHolder holder = MenuHolder.list(page, totalPages, slots);
-        Inventory inventory = Bukkit.createInventory(holder, size, lang.getGuiTitle(page, totalPages));
+        Inventory inventory = Bukkit.createInventory(holder, size, messages.getGuiTitle(page, totalPages));
         holder.setInventory(inventory);
 
         PlayerData data = players.get(player.getUniqueId());
@@ -125,17 +126,17 @@ public final class KitMenu {
 
     private String statusLine(Player player, PlayerData data, Kit kit) {
         if (data == null) {
-            return lang.getLoreAvailable();
+            return messages.getLoreAvailable();
         }
         if (!kit.hasAccess(player)) {
-            return lang.getLoreNoPermission();
+            return messages.getLoreNoPermission();
         }
         if (kit.isOneTimeUse()) {
-            return data.hasClaim(kit.getKey()) ? lang.getLoreClaimed() : lang.getLoreAvailable();
+            return data.hasClaim(kit.getKey()) ? messages.getLoreClaimed() : messages.getLoreAvailable();
         }
         long remaining = service.remainingCooldown(data, kit);
         return remaining > 0L
-                ? lang.getLoreCooldown(TimeFormat.getFormattedCooldown(remaining))
-                : lang.getLoreAvailable();
+                ? messages.getLoreCooldown(TimeFormat.getFormattedCooldown(remaining))
+                : messages.getLoreAvailable();
     }
 }

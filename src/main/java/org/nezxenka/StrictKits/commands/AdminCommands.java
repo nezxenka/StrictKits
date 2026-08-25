@@ -7,10 +7,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.nezxenka.StrictKits.Main;
+import org.nezxenka.StrictKits.config.Messages;
 import org.nezxenka.StrictKits.kit.Kit;
-import org.nezxenka.StrictKits.kit.KitManager;
+import org.nezxenka.StrictKits.util.Messenger;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -23,6 +23,9 @@ public final class AdminCommands implements TabExecutor {
 
     private static final List<String> BOOLEANS = Collections.unmodifiableList(Arrays.asList("true", "false"));
 
+    private static final List<String> RESERVED = Collections.unmodifiableList(Arrays.asList(
+            "list", "preview", "help"));
+
     private final Main plugin;
 
     public AdminCommands(Main plugin) {
@@ -31,123 +34,102 @@ public final class AdminCommands implements TabExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        Messages messages = plugin.getMessages();
         if (args.length == 0) {
-            sendHelp(sender);
+            Messenger.send(sender, messages.getAdminHelp());
             return true;
         }
 
-        KitManager kits = plugin.getKits();
-        String sub = args[0].toLowerCase();
-
-        switch (sub) {
+        switch (args[0].toLowerCase()) {
             case "create":
-                return create(sender, args);
+                return create(sender, messages, args);
             case "remove":
-                return remove(sender, args);
+                return remove(sender, messages, args);
             case "setinv":
-                return setInventory(sender, args);
+                return setInventory(sender, messages, args);
             case "setcooldown":
-                return setCooldown(sender, args);
+                return setCooldown(sender, messages, args);
             case "setonetimeuse":
-                return setFlag(sender, args, true);
+                return setFlag(sender, messages, args, true);
             case "setfirstjoinkit":
-                return setFlag(sender, args, false);
+                return setFlag(sender, messages, args, false);
             case "seticon":
-                return setIcon(sender, args);
+                return setIcon(sender, messages, args);
             case "setperm":
-                return setPermission(sender, args);
+                return setPermission(sender, messages, args);
             case "purge":
-                return purge(sender, args);
+                return purge(sender, messages, args);
             case "reload":
                 plugin.reloadPlugin();
-                sender.sendMessage("§7[SK] §aКонфигурация перезагружена, китов: §e" + kits.size());
+                Messenger.send(sender, plugin.getMessages().getAdminReloaded(plugin.getKits().size()));
                 return true;
             case "stats":
-                sender.sendMessage("§7[SK] §aХранилище: §e" + plugin.getStorageName()
-                        + " §a| Кэш: §e" + plugin.getCacheName());
-                sender.sendMessage("§7[SK] §a" + plugin.getPlayers().stats());
-                sender.sendMessage("§7[SK] §aКитов: §e" + kits.size());
+                Messenger.send(sender, messages.getAdminStats(plugin.getStorageName(), plugin.getCacheName(),
+                        plugin.getKits().size(), plugin.getPlayers()));
                 return true;
             case "version":
-                sender.sendMessage("§7[SK] §aВерсия: §e" + plugin.getDescription().getVersion());
+                Messenger.send(sender, messages.getAdminVersion());
                 return true;
             default:
-                sendHelp(sender);
+                Messenger.send(sender, messages.getAdminHelp());
                 return true;
         }
     }
 
-    private void sendHelp(CommandSender sender) {
-        sender.sendMessage("§cStrictKits §7v" + plugin.getDescription().getVersion());
-        sender.sendMessage("§8► §c/sk create §6<кит>");
-        sender.sendMessage("§8► §c/sk remove §6<кит>");
-        sender.sendMessage("§8► §c/sk setinv §6<кит>");
-        sender.sendMessage("§8► §c/sk setcooldown §6<кит> <секунды>");
-        sender.sendMessage("§8► §c/sk setonetimeuse §6<кит> <true:false>");
-        sender.sendMessage("§8► §c/sk setfirstjoinkit §6<кит> <true:false>");
-        sender.sendMessage("§8► §c/sk seticon §6<кит>");
-        sender.sendMessage("§8► §c/sk setperm §6<кит> <право>");
-        sender.sendMessage("§8► §c/sk purge §6<кит>");
-        sender.sendMessage("§8► §c/sk reload");
-        sender.sendMessage("§8► §c/sk stats");
-        sender.sendMessage("§8► §c/sk version");
-    }
-
-    private Kit require(CommandSender sender, String name) {
+    private Kit require(CommandSender sender, Messages messages, String name) {
         Kit kit = plugin.getKits().get(name);
         if (kit == null) {
-            sender.sendMessage("§7[SK] §cЭтого набора не существует");
+            Messenger.send(sender, messages.getAdminKitNotFound());
         }
         return kit;
     }
 
-    private boolean usage(CommandSender sender, String text) {
-        sender.sendMessage("§7[SK] §cИспользование: " + text);
+    private boolean usage(CommandSender sender, Messages messages, String subcommand) {
+        Messenger.send(sender, messages.getUsage(subcommand));
         return true;
     }
 
-    private boolean create(CommandSender sender, String[] args) {
+    private boolean create(CommandSender sender, Messages messages, String[] args) {
         if (args.length != 2) {
-            return usage(sender, "/sk create <кит>");
+            return usage(sender, messages, "create");
         }
         String name = args[1];
-        if (name.length() > 32 || name.equalsIgnoreCase("list")
-                || name.equalsIgnoreCase("preview") || name.equalsIgnoreCase("help")) {
-            sender.sendMessage("§7[SK] §cНедопустимое имя набора");
+        if (name.length() > 32 || RESERVED.contains(name.toLowerCase())) {
+            Messenger.send(sender, messages.getAdminKitNameInvalid());
             return true;
         }
         Kit kit = plugin.getKits().create(name);
         if (kit == null) {
-            sender.sendMessage("§7[SK] §cЭтот набор уже существует");
+            Messenger.send(sender, messages.getAdminKitExists());
             return true;
         }
-        sender.sendMessage("§7[SK] §aВы успешно создали набор §e" + name);
+        Messenger.send(sender, messages.getAdminKitCreated(kit.getName()));
         return true;
     }
 
-    private boolean remove(CommandSender sender, String[] args) {
+    private boolean remove(CommandSender sender, Messages messages, String[] args) {
         if (args.length != 2) {
-            return usage(sender, "/sk remove <кит>");
+            return usage(sender, messages, "remove");
         }
-        Kit kit = require(sender, args[1]);
+        Kit kit = require(sender, messages, args[1]);
         if (kit == null) {
             return true;
         }
         plugin.getKits().remove(kit);
         plugin.getPlayers().onKitRemoved(kit.getKey());
-        sender.sendMessage("§7[SK] §aВы успешно §cудалили §aнабор §e" + kit.getName());
+        Messenger.send(sender, messages.getAdminKitRemoved(kit.getName()));
         return true;
     }
 
-    private boolean setInventory(CommandSender sender, String[] args) {
+    private boolean setInventory(CommandSender sender, Messages messages, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage(plugin.getLang().getPlayersOnly());
+            Messenger.send(sender, messages.getPlayersOnly());
             return true;
         }
         if (args.length != 2) {
-            return usage(sender, "/sk setinv <кит>");
+            return usage(sender, messages, "setinv");
         }
-        Kit kit = require(sender, args[1]);
+        Kit kit = require(sender, messages, args[1]);
         if (kit == null) {
             return true;
         }
@@ -163,15 +145,15 @@ public final class AdminCommands implements TabExecutor {
         kit.setMainContent(main);
         kit.setArmorContent(player.getInventory().getArmorContents());
         plugin.getKits().flush(kit);
-        sender.sendMessage("§7[SK] §aВы успешно установили инвентарь набора §e" + kit.getName());
+        Messenger.send(sender, messages.getAdminInventoryUpdated(kit.getName()));
         return true;
     }
 
-    private boolean setCooldown(CommandSender sender, String[] args) {
+    private boolean setCooldown(CommandSender sender, Messages messages, String[] args) {
         if (args.length != 3) {
-            return usage(sender, "/sk setcooldown <кит> <секунды>");
+            return usage(sender, messages, "setcooldown");
         }
-        Kit kit = require(sender, args[1]);
+        Kit kit = require(sender, messages, args[1]);
         if (kit == null) {
             return true;
         }
@@ -179,30 +161,30 @@ public final class AdminCommands implements TabExecutor {
         try {
             seconds = Long.parseLong(args[2]);
         } catch (NumberFormatException e) {
-            sender.sendMessage("§7[SK] §cЗадержка должна быть числом");
+            Messenger.send(sender, messages.getAdminCooldownNotANumber());
             return true;
         }
         if (seconds < 0L) {
-            sender.sendMessage("§7[SK] §cЗадержка не может быть отрицательной");
+            Messenger.send(sender, messages.getAdminCooldownNegative());
             return true;
         }
         kit.setCooldown(seconds);
         plugin.getKits().flush(kit);
-        sender.sendMessage("§7[SK] §aЗадержка набора §e" + kit.getName() + " §aустановлена на §c" + seconds + "s");
+        Messenger.send(sender, messages.getAdminCooldownUpdated(kit.getName(), seconds));
         return true;
     }
 
-    private boolean setFlag(CommandSender sender, String[] args, boolean oneTimeUse) {
-        String name = oneTimeUse ? "setonetimeuse" : "setfirstjoinkit";
+    private boolean setFlag(CommandSender sender, Messages messages, String[] args, boolean oneTimeUse) {
+        String subcommand = oneTimeUse ? "setonetimeuse" : "setfirstjoinkit";
         if (args.length != 3) {
-            return usage(sender, "/sk " + name + " <кит> <true:false>");
+            return usage(sender, messages, subcommand);
         }
-        Kit kit = require(sender, args[1]);
+        Kit kit = require(sender, messages, args[1]);
         if (kit == null) {
             return true;
         }
         if (!args[2].equalsIgnoreCase("true") && !args[2].equalsIgnoreCase("false")) {
-            return usage(sender, "/sk " + name + " <кит> <true:false>");
+            return usage(sender, messages, subcommand);
         }
         boolean value = Boolean.parseBoolean(args[2]);
         if (oneTimeUse) {
@@ -211,74 +193,76 @@ public final class AdminCommands implements TabExecutor {
             kit.setFirstTimeJoinKit(value);
         }
         plugin.getKits().flush(kit);
-        sender.sendMessage("§7[SK] §aПараметр §e" + (oneTimeUse ? "OneTimeUse" : "FirstJoinKit")
-                + " §aнабора §e" + kit.getName() + " §aустановлен на §c" + value);
+        Messenger.send(sender, messages.getAdminFlagUpdated(
+                oneTimeUse ? "OneTimeUse" : "FirstJoinKit", kit.getName(), value));
         return true;
     }
 
-    private boolean setIcon(CommandSender sender, String[] args) {
+    private boolean setIcon(CommandSender sender, Messages messages, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage(plugin.getLang().getPlayersOnly());
+            Messenger.send(sender, messages.getPlayersOnly());
             return true;
         }
         if (args.length != 2) {
-            return usage(sender, "/sk seticon <кит>");
+            return usage(sender, messages, "seticon");
         }
-        Kit kit = require(sender, args[1]);
+        Kit kit = require(sender, messages, args[1]);
         if (kit == null) {
             return true;
         }
         Player player = (Player) sender;
         ItemStack hand = player.getInventory().getItemInMainHand();
         if (hand.getType().isAir()) {
-            sender.sendMessage("§7[SK] §cВозьмите предмет в руку");
+            Messenger.send(sender, messages.getAdminIconHandEmpty());
             return true;
         }
         ItemMeta meta = hand.getItemMeta();
         if (meta == null || !meta.hasDisplayName()) {
-            sender.sendMessage("§7[SK] §cОшибка, у этой иконки нет имени");
+            Messenger.send(sender, messages.getAdminIconWithoutName());
             return true;
         }
-        for (Kit other : plugin.getKits().all()) {
+        List<Kit> all = plugin.getKits().all();
+        for (int i = 0; i < all.size(); i++) {
+            Kit other = all.get(i);
             if (other != kit && hand.isSimilar(other.getIcon())) {
-                sender.sendMessage("§7[SK] §cОшибка, это уже значок набора §e" + other.getName());
+                Messenger.send(sender, messages.getAdminIconAlreadyUsed(other.getName()));
                 return true;
             }
         }
         kit.setIcon(hand);
         plugin.getKits().flush(kit);
-        sender.sendMessage("§7[SK] §aВы успешно установили значок набора §e" + kit.getName());
+        Messenger.send(sender, messages.getAdminIconUpdated(kit.getName()));
         return true;
     }
 
-    private boolean setPermission(CommandSender sender, String[] args) {
+    private boolean setPermission(CommandSender sender, Messages messages, String[] args) {
         if (args.length != 3) {
-            return usage(sender, "/sk setperm <кит> <право>");
+            return usage(sender, messages, "setperm");
         }
-        Kit kit = require(sender, args[1]);
+        Kit kit = require(sender, messages, args[1]);
         if (kit == null) {
             return true;
         }
         kit.setPermission(args[2]);
         plugin.getKits().flush(kit);
-        sender.sendMessage("§7[SK] §aПраво набора §e" + kit.getName() + " §aустановлено на §e" + args[2]);
+        Messenger.send(sender, messages.getAdminPermissionUpdated(kit.getName(), args[2]));
         return true;
     }
 
-    private boolean purge(CommandSender sender, String[] args) {
+    private boolean purge(CommandSender sender, Messages messages, String[] args) {
         if (args.length != 2) {
-            return usage(sender, "/sk purge <кит>");
+            return usage(sender, messages, "purge");
         }
-        Kit kit = require(sender, args[1]);
+        Kit kit = require(sender, messages, args[1]);
         if (kit == null) {
             return true;
         }
         if (kit.isOneTimeUse() || kit.getCooldown() <= 0L) {
-            sender.sendMessage("§7[SK] §cУ этого набора нет истекающих кулдаунов");
+            Messenger.send(sender, messages.getAdminPurgeNothing());
             return true;
         }
         plugin.getPlayers().purgeExpired(kit.getKey(), kit.getCooldownMillis());
-        sender.sendMessage("§7[SK] §aОчистка истёкших кулдаунов набора §e" + kit.getName() + " §aзапущена");
+        Messenger.send(sender, messages.getAdminPurgeStarted(kit.getName()));
         return true;
     }
 
@@ -301,9 +285,8 @@ public final class AdminCommands implements TabExecutor {
             }
             if (sub.equals("setperm")) {
                 Kit kit = plugin.getKits().get(args[1]);
-                List<String> suggestion = new ArrayList<>(1);
-                suggestion.add(kit == null ? "strictkits.kits.kit" : kit.getPermission());
-                return PlayerCommands.filter(suggestion, args[2]);
+                return PlayerCommands.filter(
+                        Collections.singletonList(kit == null ? "strictkits.kits.kit" : kit.getPermission()), args[2]);
             }
         }
         return Collections.emptyList();

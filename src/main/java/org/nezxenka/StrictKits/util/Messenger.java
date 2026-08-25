@@ -26,4 +26,20 @@ public final class Messenger {
         }
         target.sendMessage(message);
     }
+
+    public static void send(CommandSender target, String[] messages) {
+        if (messages == null || messages.length == 0) {
+            return;
+        }
+        if (placeholderApi && target instanceof Player) {
+            Player player = (Player) target;
+            String[] resolved = new String[messages.length];
+            for (int i = 0; i < messages.length; i++) {
+                resolved[i] = PlaceholderAPI.setPlaceholders(player, messages[i]);
+            }
+            target.sendMessage(resolved);
+            return;
+        }
+        target.sendMessage(messages);
+    }
 }

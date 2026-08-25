@@ -6,7 +6,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
 import org.nezxenka.StrictKits.Main;
-import org.nezxenka.StrictKits.config.Lang;
+import org.nezxenka.StrictKits.config.Messages;
 import org.nezxenka.StrictKits.kit.Kit;
 import org.nezxenka.StrictKits.kit.KitManager;
 import org.nezxenka.StrictKits.kit.KitService;
@@ -15,10 +15,14 @@ import org.nezxenka.StrictKits.util.Messenger;
 import org.nezxenka.StrictKits.util.Throttle;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 public final class PlayerCommands implements TabExecutor {
+
+    private static final List<String> SUBCOMMANDS = Collections.unmodifiableList(
+            Arrays.asList("help", "list", "preview"));
 
     private final Main plugin;
     private final Throttle throttle;
@@ -30,24 +34,24 @@ public final class PlayerCommands implements TabExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        Lang lang = plugin.getLang();
+        Messages messages = plugin.getMessages();
         KitManager kits = plugin.getKits();
         KitService service = plugin.getKitService();
 
         if (args.length == 0) {
             if (!(sender instanceof Player)) {
-                Messenger.send(sender, lang.getPlayersOnly());
+                Messenger.send(sender, messages.getPlayersOnly());
                 return true;
             }
             Player player = (Player) sender;
             if (!throttle.allow(player.getUniqueId())) {
-                Messenger.send(player, lang.getThrottled());
+                Messenger.send(player, messages.getThrottled());
                 return true;
             }
             if (plugin.getSettings().isGuiDisplay()) {
                 plugin.getKitMenu().open(player, 1);
             } else {
-                sendOwnList(player);
+                sendOwnList(player, messages);
             }
             return true;
         }
@@ -55,28 +59,27 @@ public final class PlayerCommands implements TabExecutor {
         String first = args[0];
 
         if (first.equalsIgnoreCase("help")) {
-            for (String line : lang.getListHelp()) {
-                Messenger.send(sender, line);
-            }
+            Messenger.send(sender, messages.getPlayerHelp());
             return true;
         }
 
         if (first.equalsIgnoreCase("list")) {
             if (plugin.getSettings().isListRequiresPermission() && !sender.hasPermission("strictkits.list")) {
-                Messenger.send(sender, lang.getNoPermission());
+                Messenger.send(sender, messages.getNoPermission());
                 return true;
             }
             List<String> names = kits.names();
             if (names.isEmpty()) {
-                Messenger.send(sender, lang.getNoKitServer());
+                Messenger.send(sender, messages.getNoKitsOnServer());
                 return true;
             }
-            StringBuilder builder = new StringBuilder(lang.getKitListPrefix());
+            StringBuilder builder = new StringBuilder(names.size() * 16);
+            builder.append(messages.getListPrefix());
             for (int i = 0; i < names.size(); i++) {
                 if (i > 0) {
-                    builder.append(lang.getKitListSeparator());
+                    builder.append(messages.getListSeparator());
                 }
-                builder.append("§6").append(names.get(i));
+                builder.append(messages.getListEntry(names.get(i)));
             }
             Messenger.send(sender, builder.toString());
             return true;
@@ -84,16 +87,16 @@ public final class PlayerCommands implements TabExecutor {
 
         if (first.equalsIgnoreCase("preview")) {
             if (!(sender instanceof Player)) {
-                Messenger.send(sender, lang.getPlayersOnly());
+                Messenger.send(sender, messages.getPlayersOnly());
                 return true;
             }
             if (args.length < 2) {
-                Messenger.send(sender, lang.getPreviewUsageError());
+                Messenger.send(sender, messages.getPreviewUsage());
                 return true;
             }
             Kit kit = kits.get(args[1]);
             if (kit == null) {
-                Messenger.send(sender, lang.getKitDoesntExist());
+                Messenger.send(sender, messages.getKitNotFound());
                 return true;
             }
             service.preview((Player) sender, kit);
@@ -102,48 +105,48 @@ public final class PlayerCommands implements TabExecutor {
 
         Kit kit = kits.get(first);
         if (kit == null) {
-            Messenger.send(sender, lang.getKitDoesntExist());
+            Messenger.send(sender, messages.getKitNotFound());
             return true;
         }
 
         if (args.length >= 2) {
             if (!sender.hasPermission("strictkits.admin")) {
-                Messenger.send(sender, lang.getNoPermission());
+                Messenger.send(sender, messages.getNoPermission());
                 return true;
             }
             Player target = Bukkit.getPlayerExact(args[1]);
             if (target == null) {
-                Messenger.send(sender, lang.getPlayerOffline());
+                Messenger.send(sender, messages.getPlayerOffline());
                 return true;
             }
             service.giveDirect(target, kit);
-            sender.sendMessage("§aНабор выдан игроку §e" + target.getName());
+            Messenger.send(sender, messages.getAdminKitGiven(kit.getName(), target.getName()));
             return true;
         }
 
         if (!(sender instanceof Player)) {
-            Messenger.send(sender, lang.getPlayersOnly());
+            Messenger.send(sender, messages.getPlayersOnly());
             return true;
         }
         Player player = (Player) sender;
         if (!throttle.allow(player.getUniqueId())) {
-            Messenger.send(player, lang.getThrottled());
+            Messenger.send(player, messages.getThrottled());
             return true;
         }
         service.give(player, kit);
         return true;
     }
 
-    private void sendOwnList(Player player) {
-        Lang lang = plugin.getLang();
+    private void sendOwnList(Player player, Messages messages) {
         KitService service = plugin.getKitService();
         PlayerData data = plugin.getPlayers().get(player.getUniqueId());
         if (data == null) {
-            Messenger.send(player, lang.getDataNotLoaded());
+            Messenger.send(player, messages.getDataNotLoaded());
             return;
         }
         List<Kit> all = plugin.getKits().all();
-        StringBuilder builder = new StringBuilder(lang.getKitListPrefix());
+        StringBuilder builder = new StringBuilder(all.size() * 16);
+        builder.append(messages.getListPrefix());
         int shown = 0;
         for (int i = 0; i < all.size(); i++) {
             Kit kit = all.get(i);
@@ -151,16 +154,16 @@ public final class PlayerCommands implements TabExecutor {
                 continue;
             }
             if (shown > 0) {
-                builder.append(lang.getKitListSeparator());
+                builder.append(messages.getListSeparator());
             }
             boolean ready = kit.isOneTimeUse()
                     ? !data.hasClaim(kit.getKey())
                     : service.remainingCooldown(data, kit) <= 0L;
-            builder.append(ready ? "§a" : "§c").append(kit.getName());
+            builder.append(messages.getListEntry(kit.getName(), ready));
             shown++;
         }
         if (shown == 0) {
-            Messenger.send(player, lang.getNoAccess());
+            Messenger.send(player, messages.getNoAccess());
             return;
         }
         Messenger.send(player, builder.toString());
@@ -169,12 +172,9 @@ public final class PlayerCommands implements TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            List<String> options = new ArrayList<>(plugin.getKits().size() + 3);
-            options.add("help");
-            options.add("list");
-            options.add("preview");
-            options.addAll(plugin.getKits().names());
-            return filter(options, args[0]);
+            List<String> matches = filter(SUBCOMMANDS, args[0]);
+            collect(matches, plugin.getKits().names(), args[0]);
+            return matches;
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("preview")) {
             return filter(plugin.getKits().names(), args[1]);
@@ -186,14 +186,18 @@ public final class PlayerCommands implements TabExecutor {
     }
 
     static List<String> filter(List<String> source, String prefix) {
-        String lower = prefix.toLowerCase();
-        List<String> matches = new ArrayList<>(source.size());
+        List<String> matches = new ArrayList<>(Math.min(source.size(), 16));
+        collect(matches, source, prefix);
+        return matches;
+    }
+
+    static void collect(List<String> target, List<String> source, String prefix) {
+        int length = prefix.length();
         for (int i = 0; i < source.size(); i++) {
             String value = source.get(i);
-            if (value.toLowerCase().startsWith(lower)) {
-                matches.add(value);
+            if (value.length() >= length && value.regionMatches(true, 0, prefix, 0, length)) {
+                target.add(value);
             }
         }
-        return matches;
     }
 }

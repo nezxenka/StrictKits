@@ -14,14 +14,14 @@ public final class Settings {
     private final int guiRows;
 
     public Settings(FileConfiguration config) {
-        this.guiDisplay = config.getBoolean("settings.enable-gui-kit-displaying", false);
-        this.guiPreview = config.getBoolean("settings.enable-gui-kit-previewing", false);
-        this.displayWithoutPermission = config.getBoolean("settings.kit-display-without-perm", true);
-        this.listRequiresPermission = config.getBoolean("permission.kit-list", false);
-        this.previewRequiresPermission = config.getBoolean("permission.kit-preview", false);
-        this.commandThrottleMillis = Math.max(0L, config.getLong("settings.command-throttle-millis", 250L));
-        this.guiRefreshTicks = Math.max(0, config.getInt("settings.gui-refresh-ticks", 40));
-        this.guiRows = Math.min(6, Math.max(1, config.getInt("gui.rows", 6)));
+        this.guiDisplay = config.getBoolean("settings.enable-gui-kit-displaying");
+        this.guiPreview = config.getBoolean("settings.enable-gui-kit-previewing");
+        this.displayWithoutPermission = config.getBoolean("settings.kit-display-without-perm");
+        this.listRequiresPermission = config.getBoolean("permission.kit-list");
+        this.previewRequiresPermission = config.getBoolean("permission.kit-preview");
+        this.commandThrottleMillis = Math.max(0L, config.getLong("settings.command-throttle-millis"));
+        this.guiRefreshTicks = Math.max(0, config.getInt("settings.gui-refresh-ticks"));
+        this.guiRows = Math.min(6, Math.max(1, config.getInt("gui.rows")));
     }
 
     public boolean isGuiDisplay() {
