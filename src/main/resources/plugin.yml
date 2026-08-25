@@ -1,0 +1,29 @@
+name: StrictKits
+version: "${version}"
+main: org.nezxenka.StrictKits.Main
+description: Перепис GreatKits под 1.16.5
+api-version: "1.16"
+softdepend: [PlaceholderAPI]
+authors:
+  - nezxenka
+  - FlimixST
+commands:
+  strictkits:
+    description: Админская команда StrictKits
+    permission: strictkits.admin
+    aliases: [sk]
+  kit:
+    description: Показывает доступные киты
+permissions:
+  strictkits.admin:
+    description: Полный доступ к плагину
+    default: op
+  strictkits.kits.*:
+    description: Доступ ко всем китам
+    default: false
+  strictkits.list:
+    description: Доступ к /kit list
+    default: true
+  strictkits.preview:
+    description: Доступ к /kit preview
+    default: true

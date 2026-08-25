@@ -1,0 +1,80 @@
+plugins {
+    id 'java'
+}
+
+group = 'org.nezxenka'
+version = '2.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_16
+    targetCompatibility = JavaVersion.VERSION_16
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+    maven { url = 'https://repo.extendedclip.com/content/repositories/placeholderapi/' }
+}
+
+configurations {
+    shaded
+    compileOnly.extendsFrom shaded
+}
+
+dependencies {
+    compileOnly 'com.destroystokyo.paper:paper-api:1.16.5-R0.1-SNAPSHOT'
+    compileOnly 'me.clip:placeholderapi:2.11.6'
+
+    shaded('com.zaxxer:HikariCP:4.0.3') {
+        exclude group: 'org.slf4j'
+    }
+    shaded 'org.xerial:sqlite-jdbc:3.42.0.0'
+    shaded('mysql:mysql-connector-java:8.0.33') {
+        exclude group: 'com.google.protobuf'
+    }
+    shaded('redis.clients:jedis:3.8.0') {
+        exclude group: 'org.slf4j'
+        exclude group: 'com.google.code.gson'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    filteringCharset = 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand(project.properties)
+    }
+}
+
+jar {
+    archiveClassifier.set('')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude 'META-INF/versions/**'
+    exclude 'module-info.class'
+    exclude 'META-INF/maven/**'
+}
+
+jar {
+    exclude 'org/sqlite/native/Linux-Android/**'
+    exclude 'org/sqlite/native/FreeBSD/**'
+    exclude 'org/sqlite/native/Linux/ppc64/**'
+    exclude 'org/sqlite/native/Linux/x86/**'
+    exclude 'org/sqlite/native/Linux/arm/**'
+    exclude 'org/sqlite/native/Linux/armv6/**'
+    exclude 'org/sqlite/native/Linux/armv7/**'
+    exclude 'org/sqlite/native/Linux-Musl/x86/**'
+    exclude 'org/sqlite/native/Windows/x86/**'
+    exclude 'org/sqlite/native/Windows/armv7/**'
+    exclude 'org/sqlite/native/Windows/aarch64/**'
+    exclude 'com/mysql/cj/xdevapi/**'
+    exclude 'com/mysql/cj/x/**'
+}

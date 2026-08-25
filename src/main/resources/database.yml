@@ -1,0 +1,76 @@
+################################################################################################
+#                                                                                              #
+#                                   Copyright nezxenka                                         #
+#                                     StrictKits 2.0                                           #
+#                                                                                              #
+################################################################################################
+
+storage:
+  type: SQLITE
+
+  table-prefix: "strictkits_"
+
+  sqlite:
+    file: "data.db"
+    journal-mode: WAL
+    synchronous: NORMAL
+
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    database: "strictkits"
+    username: "root"
+    password: ""
+    use-ssl: false
+    properties:
+      useUnicode: "true"
+      characterEncoding: "utf8"
+      cachePrepStmts: "true"
+      prepStmtCacheSize: "250"
+      prepStmtCacheSqlLimit: "2048"
+      useServerPrepStmts: "true"
+      rewriteBatchedStatements: "true"
+      useLocalSessionState: "true"
+      cacheServerConfiguration: "true"
+      elideSetAutoCommits: "true"
+      maintainTimeStats: "false"
+      serverTimezone: "UTC"
+    pool:
+      maximum-pool-size: 10
+      minimum-idle: 10
+      connection-timeout: 5000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      keepalive-time: 0
+      leak-detection-threshold: 0
+
+cache:
+  type: MEMORY
+
+  redis:
+    host: "127.0.0.1"
+    port: 6379
+    username: ""
+    password: ""
+    database: 0
+    ssl: false
+    timeout: 2000
+    key-prefix: "strictkits:"
+    entry-ttl-seconds: 3600
+    pubsub-channel: "strictkits:sync"
+    pool:
+      max-total: 16
+      max-idle: 8
+      min-idle: 2
+      max-wait-millis: 2000
+
+sync:
+  flush-interval-seconds: 30
+  batch-size: 500
+  save-on-quit: true
+  unload-delay-seconds: 60
+  load-timeout-millis: 4000
+  worker-threads: 4
+
+migration:
+  import-legacy-yaml: true

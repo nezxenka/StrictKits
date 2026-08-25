@@ -1,0 +1,117 @@
+################################################################################################
+#                                                                                              #
+#                              Copyright nezxenka && FlimixST                                  #
+#                                    StrictKits 2.0                                            #
+#                                                                                              #
+################################################################################################
+
+#Этот плагин поддерживает PlaceholderAPI
+#https://www.spigotmc.org/resources/placeholderapi.6245/
+#Не обязательно)
+
+#Настройки хранилища вынесены в database.yml
+
+settings:
+  #Установите для этого параметра значение true, если вы хотите, чтобы /kit был меню.
+  enable-gui-kit-displaying: false
+  #true, если вы хотите предварительно просмотреть комплект, щелкнув элемент правой кнопкой мыши (опция выше должна быть включена)
+  enable-gui-kit-previewing: false
+  #Наборы по-прежнему будут отображаться в меню /kit, даже если у вас нет разрешения.
+  kit-display-without-perm: true
+  #Кулдаун между использованиями команд, миллисекунды. Защита от флуда на большом онлайне.
+  command-throttle-millis: 250
+  #Обновлять открытое меню китов раз в N тиков (0 - выключить)
+  gui-refresh-ticks: 40
+
+gui:
+  title: "&7Киты: :page:/:pages:"
+  preview-title: "&7Просмотр кита: :kitname:"
+  rows: 6
+  lore-available: "&aДоступен"
+  lore-cooldown: "&cЗадержка: &e:cooldown:"
+  lore-claimed: "&cУже получен"
+  lore-no-permission: "&cНет доступа"
+
+lang:
+  #Это сообщение, которое выводится, когда у игрока нет доступа ни к одному комплекту
+  no-access: "&eДля вас нету доступных китов"
+
+  #Здесь вы можете изменить сообщение /kit help.
+  list-help:
+    - "&7-------------------------------------"
+    - "&e/kit &8- &7Показывает доступные киты"
+    - "&e/kit &6<Название>"
+    - "&e/kit list &8- &7Показывает все киты"
+    - "&e/kit preview &6<название> &8- &7Просмотр кита"
+    - "&7-------------------------------------"
+
+  #Это сообщение вы получаете, когда игрок набирает /kit preview
+  preview-usage-error: "&cИспользуй: /kit preview <name>"
+
+  #Сообщение получено, когда на сервере создано 0 китов
+  no-kit-server: "&cНа сервер нету ни одного кита"
+
+  #Когда игрок мужлан (нету прав)
+  no-permission: "&cУ вас нету права на использование команды"
+
+  #Когда игрок пытается получить набор 'OneTimeUse', который он уже получил
+  already-got-one-time-use-kit: "&cВы уже получали этот кит"
+
+  #Кита не существует, или он не создан
+  kit-doesnt-exist: "&cКита не существует"
+
+  #Когда игрок получает кит
+  received-kit: "&aВы успешно получили кит&e :kitname:"
+
+  #Сообщение о задержке
+  cooldown-message: "&cВы сможете получить этот кит через&e :cooldown:"
+
+  #Список китов
+  kit-list-prefix: "&7Киты: "
+  kit-list-separator: "&7, "
+
+  #У кита ещё нет инвентаря
+  empty-kit: "&cУ этого набора еще нет инвентаря"
+
+  #Данные игрока ещё грузятся из базы
+  data-not-loaded: "&cВаши данные ещё загружаются, попробуйте через секунду"
+
+  #Слишком частое использование команд
+  throttled: "&cНе так быстро"
+
+  #Игрок оффлайн
+  player-offline: "&cЭтот игрок не существует/не находится в сети"
+
+  #Только для игроков
+  players-only: "&cКоманда доступна только для игроков"
+
+permission:
+  #Если true --> у игрока должно быть разрешение strictkits.list, чтобы получить список всех форм | Если false --> Для получения списка всех наборов не требуется разрешения.
+  kit-list: false
+  #Если true --> у игрока должно быть разрешение strictkits.preview для предварительного просмотра комплекта | Если false --> Для предварительного просмотра комплекта разрешение не требуется.
+  kit-preview: false
+
+GUItems:
+  ExitButton:
+    ==: org.bukkit.inventory.ItemStack
+    type: STONE_BUTTON
+    meta:
+      ==: ItemMeta
+      meta-type: UNSPECIFIC
+      display-name: §cВыход
+      lore:
+        - '§6Нажми лкм чтобы выйти'
+  PreviousButton:
+    ==: org.bukkit.inventory.ItemStack
+    type: ARROW
+    meta:
+      ==: ItemMeta
+      meta-type: UNSPECIFIC
+      display-name: §eНазад
+  NextButton:
+    ==: org.bukkit.inventory.ItemStack
+    type: ARROW
+    meta:
+      ==: ItemMeta
+      meta-type: UNSPECIFIC
+      display-name: §eВперёд
