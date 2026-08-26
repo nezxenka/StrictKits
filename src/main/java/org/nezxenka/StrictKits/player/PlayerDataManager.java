@@ -60,7 +60,7 @@ public final class PlayerDataManager {
         scheduler.scheduleWithFixedDelay(this::flushSafely, period, period, TimeUnit.SECONDS);
         long unloadPeriod = Math.max(30, config.getUnloadDelaySeconds());
         scheduler.scheduleWithFixedDelay(this::evictOffline, unloadPeriod, unloadPeriod, TimeUnit.SECONDS);
-        cache.setRemoteInvalidationListener(this::onRemoteInvalidate, this::onRemoteKitRemoved);
+        cache.setKitInvalidationListener(this::onRemoteKitRemoved);
     }
 
     public ExecutorService getWorkers() {
@@ -79,18 +79,19 @@ public final class PlayerDataManager {
         return loaded.containsKey(uuid);
     }
 
-    public PlayerData loadBlocking(UUID uuid) {
+    public PlayerData preload(UUID uuid) {
         PlayerData existing = loaded.get(uuid);
         if (existing != null) {
-            existing.setOnline(true);
+            existing.touch();
             return existing;
         }
         PlayerData data = fetch(uuid);
         PlayerData previous = loaded.putIfAbsent(uuid, data);
-        if (previous != null) {
-            previous.setOnline(true);
-            return previous;
-        }
+        return previous == null ? data : previous;
+    }
+
+    public PlayerData markOnline(UUID uuid) {
+        PlayerData data = preload(uuid);
         data.setOnline(true);
         return data;
     }
@@ -174,17 +175,8 @@ public final class PlayerDataManager {
             touched.add(data);
             cooldownKeys.add(cooldownDirty);
             claimKeys.add(claimDirty);
-            if (cooldownDirty != null) {
-                for (String key : cooldownDirty) {
-                    cooldownBatch.add(new DataEntry(data.getUuid(), key, data.getCooldown(key)));
-                }
-            }
-            if (claimDirty != null) {
-                long now = System.currentTimeMillis();
-                for (String key : claimDirty) {
-                    claimBatch.add(new DataEntry(data.getUuid(), key, now));
-                }
-            }
+            appendEntries(cooldownBatch, data, cooldownDirty);
+            appendEntries(claimBatch, data, claimDirty);
         }
 
         if (touched.isEmpty()) {
@@ -213,6 +205,17 @@ public final class PlayerDataManager {
         }
     }
 
+    private static void appendEntries(List<DataEntry> target, PlayerData data, List<String> keys) {
+        if (keys == null) {
+            return;
+        }
+        long fallback = System.currentTimeMillis();
+        for (String key : keys) {
+            long stamp = data.getCooldown(key);
+            target.add(new DataEntry(data.getUuid(), key, stamp == 0L ? fallback : stamp));
+        }
+    }
+
     private void flushSingle(PlayerData data) {
         List<String> cooldownDirty = data.drainDirtyCooldowns();
         List<String> claimDirty = data.drainDirtyClaims();
@@ -221,17 +224,8 @@ public final class PlayerDataManager {
         }
         List<DataEntry> cooldownBatch = new ArrayList<>(cooldownDirty == null ? 0 : cooldownDirty.size());
         List<DataEntry> claimBatch = new ArrayList<>(claimDirty == null ? 0 : claimDirty.size());
-        if (cooldownDirty != null) {
-            for (String key : cooldownDirty) {
-                cooldownBatch.add(new DataEntry(data.getUuid(), key, data.getCooldown(key)));
-            }
-        }
-        if (claimDirty != null) {
-            long now = System.currentTimeMillis();
-            for (String key : claimDirty) {
-                claimBatch.add(new DataEntry(data.getUuid(), key, now));
-            }
-        }
+        appendEntries(cooldownBatch, data, cooldownDirty);
+        appendEntries(claimBatch, data, claimDirty);
         try {
             storage.writeCooldowns(cooldownBatch);
             storage.writeClaims(claimBatch);
@@ -276,14 +270,6 @@ public final class PlayerDataManager {
                 logger.log(Level.WARNING, "Не удалось очистить кулдауны кита " + kitKey, e);
             }
         });
-    }
-
-    private void onRemoteInvalidate(UUID uuid) {
-        PlayerData data = loaded.get(uuid);
-        if (data == null || data.isOnline()) {
-            return;
-        }
-        loaded.remove(uuid, data);
     }
 
     private void onRemoteKitRemoved(String kitKey) {

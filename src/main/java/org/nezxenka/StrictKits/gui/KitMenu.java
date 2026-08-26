@@ -21,9 +21,7 @@ import java.util.List;
 
 public final class KitMenu {
 
-    public static final int SLOT_PREVIOUS = 45;
-    public static final int SLOT_EXIT = 49;
-    public static final int SLOT_NEXT = 53;
+    private static final int MIN_PAGED_ROWS = 2;
 
     private final KitManager kits;
     private final KitService service;
@@ -46,42 +44,58 @@ public final class KitMenu {
             return false;
         }
 
-        int rows = settings.getGuiRows();
-        int capacity = Math.max(9, (rows - 1) * 9);
+        int configRows = settings.getGuiRows();
+        int capacity = Math.max(9, (configRows - 1) * 9);
         int totalPages = (visible.size() + capacity - 1) / capacity;
         int page = Math.min(Math.max(1, requestedPage), totalPages);
+        boolean paged = totalPages > 1;
 
-        int size = totalPages > 1 ? rows * 9 : sizeFor(visible.size());
+        int size = paged ? Math.max(MIN_PAGED_ROWS, configRows) * 9 : sizeFor(visible.size());
+        int previousSlot = paged ? size - 9 : -1;
+        int exitSlot = paged ? size - 5 : -1;
+        int nextSlot = paged ? size - 1 : -1;
 
         Kit[] slots = new Kit[size];
-        MenuHolder holder = MenuHolder.list(page, totalPages, slots);
+        MenuHolder holder = MenuHolder.list(page, totalPages, slots, previousSlot, exitSlot, nextSlot);
         Inventory inventory = Bukkit.createInventory(holder, size, messages.getGuiTitle(page, totalPages));
         holder.setInventory(inventory);
 
         PlayerData data = players.get(player.getUniqueId());
         int offset = (page - 1) * capacity;
+        int limit = paged ? capacity : size;
         int placed = 0;
-        int limit = totalPages > 1 ? capacity : size;
         for (int i = offset; i < visible.size() && placed < limit; i++, placed++) {
             Kit kit = visible.get(i);
             slots[placed] = kit;
             inventory.setItem(placed, decorate(player, data, kit));
         }
 
-        if (totalPages > 1) {
+        if (paged) {
             if (page > 1) {
-                inventory.setItem(SLOT_PREVIOUS, GUItems.getPreviousButton());
+                inventory.setItem(previousSlot, GUItems.getPreviousButton());
             }
             if (page < totalPages) {
-                inventory.setItem(SLOT_NEXT, GUItems.getNextButton());
+                inventory.setItem(nextSlot, GUItems.getNextButton());
             }
-            inventory.setItem(SLOT_EXIT, GUItems.getExitButton());
-        } else if (size >= 54) {
-            inventory.setItem(SLOT_EXIT, GUItems.getExitButton());
+            inventory.setItem(exitSlot, GUItems.getExitButton());
         }
 
         player.openInventory(inventory);
         return true;
+    }
+
+    public void refresh(Player player, MenuHolder holder, Inventory inventory) {
+        if (holder.getType() != MenuHolder.Type.KIT_LIST) {
+            return;
+        }
+        PlayerData data = players.get(player.getUniqueId());
+        int size = inventory.getSize();
+        for (int slot = 0; slot < size; slot++) {
+            Kit kit = holder.kitAt(slot);
+            if (kit != null) {
+                inventory.setItem(slot, decorate(player, data, kit));
+            }
+        }
     }
 
     private static int sizeFor(int count) {
@@ -99,11 +113,7 @@ public final class KitMenu {
         List<Kit> all = kits.all();
         List<Kit> visible = new ArrayList<>(all.size());
         boolean showAll = settings.isDisplayWithoutPermission();
-        for (int i = 0; i < all.size(); i++) {
-            Kit kit = all.get(i);
-            if (kit.getIcon() == null) {
-                continue;
-            }
+        for (Kit kit : all) {
             if (showAll || kit.hasAccess(player)) {
                 visible.add(kit);
             }
@@ -112,7 +122,7 @@ public final class KitMenu {
     }
 
     private ItemStack decorate(Player player, PlayerData data, Kit kit) {
-        ItemStack item = kit.getIcon().clone();
+        ItemStack item = iconFor(kit);
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             return item;
@@ -122,6 +132,20 @@ public final class KitMenu {
         meta.setLore(lore);
         item.setItemMeta(meta);
         return item;
+    }
+
+    private ItemStack iconFor(Kit kit) {
+        ItemStack icon = kit.getIcon();
+        if (icon != null) {
+            return icon.clone();
+        }
+        ItemStack fallback = GUItems.getDefaultKitIcon().clone();
+        ItemMeta meta = fallback.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(messages.getDefaultIconName(kit.getName()));
+            fallback.setItemMeta(meta);
+        }
+        return fallback;
     }
 
     private String statusLine(Player player, PlayerData data, Kit kit) {

@@ -17,9 +17,7 @@ public interface CacheProvider {
 
     void put(PlayerRecord record);
 
-    void invalidate(UUID uuid);
-
     void invalidateKit(String kit);
 
-    void setRemoteInvalidationListener(Consumer<UUID> playerListener, Consumer<String> kitListener);
+    void setKitInvalidationListener(Consumer<String> kitListener);
 }

@@ -94,7 +94,7 @@ public final class AdminCommands implements TabExecutor {
             return usage(sender, messages, "create");
         }
         String name = args[1];
-        if (name.length() > 32 || RESERVED.contains(name.toLowerCase())) {
+        if (!Kit.isValidName(name) || RESERVED.contains(name.toLowerCase())) {
             Messenger.send(sender, messages.getAdminKitNameInvalid());
             return true;
         }
@@ -168,6 +168,10 @@ public final class AdminCommands implements TabExecutor {
             Messenger.send(sender, messages.getAdminCooldownNegative());
             return true;
         }
+        if (seconds > Kit.MAX_COOLDOWN_SECONDS) {
+            Messenger.send(sender, messages.getAdminCooldownTooLarge(Kit.MAX_COOLDOWN_SECONDS));
+            return true;
+        }
         kit.setCooldown(seconds);
         plugin.getKits().flush(kit);
         Messenger.send(sender, messages.getAdminCooldownUpdated(kit.getName(), seconds));
@@ -221,9 +225,7 @@ public final class AdminCommands implements TabExecutor {
             Messenger.send(sender, messages.getAdminIconWithoutName());
             return true;
         }
-        List<Kit> all = plugin.getKits().all();
-        for (int i = 0; i < all.size(); i++) {
-            Kit other = all.get(i);
+        for (Kit other : plugin.getKits().all()) {
             if (other != kit && hand.isSimilar(other.getIcon())) {
                 Messenger.send(sender, messages.getAdminIconAlreadyUsed(other.getName()));
                 return true;

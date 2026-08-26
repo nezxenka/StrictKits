@@ -7,14 +7,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class Throttle {
 
+    private static final int MAX_ENTRIES = 4096;
+
     private final ConcurrentHashMap<UUID, Long> stamps = new ConcurrentHashMap<>();
-    private final long intervalMillis;
 
-    public Throttle(long intervalMillis) {
-        this.intervalMillis = intervalMillis;
-    }
-
-    public boolean allow(UUID uuid) {
+    public boolean allow(UUID uuid, long intervalMillis) {
         if (intervalMillis <= 0L) {
             return true;
         }
@@ -24,17 +21,13 @@ public final class Throttle {
             return false;
         }
         stamps.put(uuid, now);
-        if (stamps.size() > 4096) {
-            prune(now);
+        if (stamps.size() > MAX_ENTRIES) {
+            prune(now, intervalMillis);
         }
         return true;
     }
 
-    public void forget(UUID uuid) {
-        stamps.remove(uuid);
-    }
-
-    private void prune(long now) {
+    private void prune(long now, long intervalMillis) {
         Iterator<Map.Entry<UUID, Long>> iterator = stamps.entrySet().iterator();
         while (iterator.hasNext()) {
             if (now - iterator.next().getValue() > intervalMillis * 20L) {

@@ -15,6 +15,9 @@ import org.nezxenka.StrictKits.util.TimeFormat;
 
 public final class KitService {
 
+    private static final int PREVIEW_SIZE = 54;
+    private static final int PREVIEW_EXIT_SLOT = 49;
+
     private final KitManager kits;
     private final PlayerDataManager players;
     private final Messages messages;
@@ -120,8 +123,8 @@ public final class KitService {
             Messenger.send(player, messages.getKitEmpty());
             return;
         }
-        MenuHolder holder = MenuHolder.preview(kit);
-        Inventory inventory = Bukkit.createInventory(holder, 54, messages.getGuiPreviewTitle(kit.getName()));
+        MenuHolder holder = MenuHolder.preview(kit, PREVIEW_EXIT_SLOT);
+        Inventory inventory = Bukkit.createInventory(holder, PREVIEW_SIZE, messages.getGuiPreviewTitle(kit.getName()));
         holder.setInventory(inventory);
         ItemStack[] main = kit.getMainContent();
         int limit = Math.min(main.length, 36);
@@ -138,7 +141,7 @@ public final class KitService {
         if (main.length > 40 && main[40] != null) {
             inventory.setItem(40, main[40].clone());
         }
-        inventory.setItem(49, GUItems.getExitButton());
+        inventory.setItem(PREVIEW_EXIT_SLOT, GUItems.getExitButton());
         player.openInventory(inventory);
     }
 

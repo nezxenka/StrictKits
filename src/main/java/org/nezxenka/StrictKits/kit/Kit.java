@@ -4,11 +4,15 @@ import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
-import org.nezxenka.StrictKits.util.ItemSerializer;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class Kit {
+
+    private static final ItemStack[] EMPTY = new ItemStack[0];
+
+    public static final long MAX_COOLDOWN_SECONDS = 315360000L;
+    public static final int MAX_NAME_LENGTH = 32;
 
     private final String name;
     private final String key;
@@ -18,8 +22,8 @@ public final class Kit {
     private volatile String permission;
     private volatile boolean oneTimeUse;
     private volatile boolean firstTimeJoinKit;
-    private volatile ItemStack[] mainContent = ItemSerializer.empty();
-    private volatile ItemStack[] armorContent = ItemSerializer.empty();
+    private volatile ItemStack[] mainContent = EMPTY;
+    private volatile ItemStack[] armorContent = EMPTY;
     private volatile ItemStack icon;
 
     public Kit(String name) {
@@ -36,6 +40,19 @@ public final class Kit {
         return key;
     }
 
+    public static boolean isValidName(String name) {
+        if (name == null || name.isEmpty() || name.length() > MAX_NAME_LENGTH) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '_' && c != '-') {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public long getCooldown() {
         return cooldown;
     }
@@ -45,7 +62,7 @@ public final class Kit {
     }
 
     public void setCooldown(long cooldown) {
-        this.cooldown = cooldown;
+        this.cooldown = cooldown < 0L ? 0L : Math.min(cooldown, MAX_COOLDOWN_SECONDS);
         markDirty();
     }
 
@@ -81,7 +98,7 @@ public final class Kit {
     }
 
     public void setMainContent(ItemStack[] mainContent) {
-        this.mainContent = ItemSerializer.copy(mainContent);
+        this.mainContent = copyOf(mainContent);
         markDirty();
     }
 
@@ -90,7 +107,7 @@ public final class Kit {
     }
 
     public void setArmorContent(ItemStack[] armorContent) {
-        this.armorContent = ItemSerializer.copy(armorContent);
+        this.armorContent = copyOf(armorContent);
         markDirty();
     }
 
@@ -187,6 +204,17 @@ public final class Kit {
             return;
         }
         deliver(player, copy);
+    }
+
+    private static ItemStack[] copyOf(ItemStack[] source) {
+        if (source == null || source.length == 0) {
+            return EMPTY;
+        }
+        ItemStack[] copy = new ItemStack[source.length];
+        for (int i = 0; i < source.length; i++) {
+            copy[i] = source[i] == null ? null : source[i].clone();
+        }
+        return copy;
     }
 
     private void deliver(Player player, ItemStack item) {

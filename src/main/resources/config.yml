@@ -1,7 +1,7 @@
 ################################################################################################
 #                                                                                              #
 #                              Copyright nezxenka && FlimixST                                  #
-#                                    StrictKits 2.0                                            #
+#                                    StrictKits 2.1                                            #
 #                                                                                              #
 ################################################################################################
 
@@ -20,26 +20,28 @@ settings:
   kit-display-without-perm: true
   #Кулдаун между использованиями команд, миллисекунды. Защита от флуда на большом онлайне.
   command-throttle-millis: 250
-  #Обновлять открытое меню китов раз в N тиков (0 - выключить)
+  #Обновлять открытое меню китов раз в N тиков (0 - выключить, минимум 10)
   gui-refresh-ticks: 40
 
 gui:
   rows: 6
 
 permission:
-  #Если true --> у игрока должно быть разрешение strictkits.list, чтобы получить список всех форм | Если false --> Для получения списка всех наборов не требуется разрешения.
+  #Если true --> у игрока должно быть разрешение strictkits.list, чтобы получить список всех китов | Если false --> Для получения списка всех наборов не требуется разрешения.
   kit-list: false
   #Если true --> у игрока должно быть разрешение strictkits.preview для предварительного просмотра комплекта | Если false --> Для предварительного просмотра комплекта разрешение не требуется.
   kit-preview: false
 
 GUItems:
+  DefaultKitIcon:
+    ==: org.bukkit.inventory.ItemStack
+    type: CHEST
   ExitButton:
     ==: org.bukkit.inventory.ItemStack
     type: STONE_BUTTON
     meta:
       ==: ItemMeta
       meta-type: UNSPECIFIC
-      display-name: §cВыход
       lore:
         - '§6Нажми лкм чтобы выйти'
   PreviousButton:
@@ -48,11 +50,9 @@ GUItems:
     meta:
       ==: ItemMeta
       meta-type: UNSPECIFIC
-      display-name: §eНазад
   NextButton:
     ==: org.bukkit.inventory.ItemStack
     type: ARROW
     meta:
       ==: ItemMeta
       meta-type: UNSPECIFIC
-      display-name: §eВперёд

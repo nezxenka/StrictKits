@@ -11,6 +11,7 @@ public final class GUItems {
     private static ItemStack exitButton;
     private static ItemStack previousButton;
     private static ItemStack nextButton;
+    private static ItemStack defaultKitIcon;
 
     private GUItems() {
     }
@@ -19,14 +20,15 @@ public final class GUItems {
         exitButton = read(config, "GUItems.ExitButton", Material.STONE_BUTTON, messages.getExitButton());
         previousButton = read(config, "GUItems.PreviousButton", Material.ARROW, messages.getPreviousButton());
         nextButton = read(config, "GUItems.NextButton", Material.ARROW, messages.getNextButton());
+        defaultKitIcon = read(config, "GUItems.DefaultKitIcon", Material.CHEST, null);
     }
 
     private static ItemStack read(FileConfiguration config, String path, Material fallback, String name) {
         ItemStack stored = config.getItemStack(path);
-        if (stored != null) {
-            return stored;
+        ItemStack item = stored == null ? new ItemStack(fallback) : stored.clone();
+        if (name == null || name.isEmpty()) {
+            return item;
         }
-        ItemStack item = new ItemStack(fallback);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(name);
@@ -45,5 +47,9 @@ public final class GUItems {
 
     public static ItemStack getNextButton() {
         return nextButton;
+    }
+
+    public static ItemStack getDefaultKitIcon() {
+        return defaultKitIcon;
     }
 }

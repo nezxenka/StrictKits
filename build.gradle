@@ -1,9 +1,10 @@
 plugins {
     id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 group = 'org.nezxenka'
-version = '2.0'
+version = '2.1'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_16
@@ -25,13 +26,15 @@ dependencies {
     compileOnly 'com.destroystokyo.paper:paper-api:1.16.5-R0.1-SNAPSHOT'
     compileOnly 'me.clip:placeholderapi:2.11.6'
 
-    shaded('com.zaxxer:HikariCP:4.0.3') {
-        exclude group: 'org.slf4j'
-    }
+    shaded 'org.slf4j:slf4j-api:1.7.25'
+    shaded 'org.slf4j:slf4j-jdk14:1.7.25'
+    shaded 'com.zaxxer:HikariCP:4.0.3'
     shaded 'org.xerial:sqlite-jdbc:3.42.0.0'
+
     shaded('mysql:mysql-connector-java:8.0.33') {
         exclude group: 'com.google.protobuf'
     }
+
     shaded('redis.clients:jedis:3.8.0') {
         exclude group: 'org.slf4j'
         exclude group: 'com.google.code.gson'
@@ -50,20 +53,32 @@ processResources {
 }
 
 jar {
+    enabled = false
+}
+
+shadowJar {
     archiveClassifier.set('')
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    from {
-        configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
-    }
+    configurations = [project.configurations.shaded]
+
+    mergeServiceFiles()
+
+    relocate 'org.slf4j', 'org.nezxenka.StrictKits.libs.slf4j'
+    relocate 'com.zaxxer.hikari', 'org.nezxenka.StrictKits.libs.hikari'
+    relocate 'redis.clients', 'org.nezxenka.StrictKits.libs.redis'
+    relocate 'org.apache.commons.pool2', 'org.nezxenka.StrictKits.libs.pool2'
+    relocate 'com.mysql', 'org.nezxenka.StrictKits.libs.mysql'
+
     exclude 'META-INF/*.SF'
     exclude 'META-INF/*.DSA'
     exclude 'META-INF/*.RSA'
+    exclude 'META-INF/INDEX.LIST'
+    exclude 'META-INF/LICENSE*'
+    exclude 'META-INF/NOTICE*'
+    exclude 'META-INF/maven/**'
+    exclude 'META-INF/native-image/**'
     exclude 'META-INF/versions/**'
     exclude 'module-info.class'
-    exclude 'META-INF/maven/**'
-}
 
-jar {
     exclude 'org/sqlite/native/Linux-Android/**'
     exclude 'org/sqlite/native/FreeBSD/**'
     exclude 'org/sqlite/native/Linux/ppc64/**'
@@ -75,6 +90,9 @@ jar {
     exclude 'org/sqlite/native/Windows/x86/**'
     exclude 'org/sqlite/native/Windows/armv7/**'
     exclude 'org/sqlite/native/Windows/aarch64/**'
+
     exclude 'com/mysql/cj/xdevapi/**'
     exclude 'com/mysql/cj/x/**'
 }
+
+build.dependsOn shadowJar

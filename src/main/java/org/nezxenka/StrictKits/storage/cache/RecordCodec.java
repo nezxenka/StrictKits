@@ -18,6 +18,17 @@ public final class RecordCodec {
     }
 
     public static String encode(PlayerRecord record) {
+        for (String key : record.getCooldowns().keySet()) {
+            if (!isSafe(key)) {
+                return null;
+            }
+        }
+        for (String claim : record.getClaims()) {
+            if (!isSafe(claim)) {
+                return null;
+            }
+        }
+
         StringBuilder builder = new StringBuilder(128);
         boolean first = true;
         for (Map.Entry<String, Long> entry : record.getCooldowns().entrySet()) {
@@ -37,6 +48,16 @@ public final class RecordCodec {
             first = false;
         }
         return builder.toString();
+    }
+
+    private static boolean isSafe(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == SECTION || c == ENTRY || c == FIELD) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static PlayerRecord decode(UUID uuid, String data) {

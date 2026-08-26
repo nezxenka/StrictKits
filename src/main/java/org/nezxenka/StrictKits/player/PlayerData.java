@@ -19,7 +19,7 @@ public final class PlayerData {
     private final Set<String> dirtyCooldowns = ConcurrentHashMap.newKeySet(4);
     private final Set<String> dirtyClaims = ConcurrentHashMap.newKeySet(4);
     private volatile long lastAccess = System.currentTimeMillis();
-    private volatile boolean online = true;
+    private volatile boolean online;
 
     public PlayerData(UUID uuid) {
         this.uuid = uuid;

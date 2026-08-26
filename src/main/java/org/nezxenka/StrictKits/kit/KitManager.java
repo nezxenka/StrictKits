@@ -5,19 +5,25 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public final class KitManager {
 
     private final ConcurrentHashMap<String, Kit> kits = new ConcurrentHashMap<>();
     private final KitStorage storage;
-    private final Executor ioExecutor;
+    private final ExecutorService ioExecutor;
     private volatile List<Kit> snapshot = Collections.emptyList();
     private volatile List<String> nameSnapshot = Collections.emptyList();
 
-    public KitManager(KitStorage storage, Executor ioExecutor) {
+    public KitManager(KitStorage storage) {
         this.storage = storage;
-        this.ioExecutor = ioExecutor;
+        this.ioExecutor = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "StrictKits-KitIO");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     public int loadAll() {
@@ -66,7 +72,8 @@ public final class KitManager {
     public boolean remove(Kit kit) {
         if (kits.remove(kit.getKey(), kit)) {
             rebuildSnapshot();
-            ioExecutor.execute(() -> storage.delete(kit));
+            kit.consumeDirty();
+            submit(() -> storage.delete(kit));
             return true;
         }
         return false;
@@ -74,13 +81,7 @@ public final class KitManager {
 
     public void flush(Kit kit) {
         if (kit.consumeDirty()) {
-            ioExecutor.execute(() -> storage.save(kit));
-        }
-    }
-
-    public void flushAll() {
-        for (Kit kit : snapshot) {
-            flush(kit);
+            submit(() -> storage.save(kit));
         }
     }
 
@@ -89,6 +90,26 @@ public final class KitManager {
             if (kit.consumeDirty()) {
                 storage.save(kit);
             }
+        }
+    }
+
+    private void submit(Runnable task) {
+        if (ioExecutor.isShutdown()) {
+            task.run();
+            return;
+        }
+        ioExecutor.execute(task);
+    }
+
+    public void shutdown() {
+        ioExecutor.shutdown();
+        try {
+            if (!ioExecutor.awaitTermination(10L, TimeUnit.SECONDS)) {
+                ioExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            ioExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -102,9 +123,5 @@ public final class KitManager {
         }
         this.snapshot = Collections.unmodifiableList(list);
         this.nameSnapshot = Collections.unmodifiableList(names);
-    }
-
-    public KitStorage getStorage() {
-        return storage;
     }
 }

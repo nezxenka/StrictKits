@@ -25,8 +25,8 @@ public final class SqliteStorage extends SqlStorage {
     @Override
     protected void configurePool(HikariConfig hikari) {
         File parent = file.getParentFile();
-        if (parent != null && !parent.exists()) {
-            parent.mkdirs();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            logger.warning("Не удалось создать папку для базы " + parent.getPath());
         }
         try {
             Class.forName("org.sqlite.JDBC");
@@ -38,8 +38,21 @@ public final class SqliteStorage extends SqlStorage {
         hikari.setMinimumIdle(1);
         hikari.setMaxLifetime(0L);
         hikari.setKeepaliveTime(0L);
-        hikari.setConnectionInitSql("PRAGMA journal_mode=" + config.getSqliteJournalMode()
-                + "; PRAGMA synchronous=" + config.getSqliteSynchronous() + ";");
+        hikari.setConnectionInitSql("PRAGMA synchronous=" + pragma(config.getSqliteSynchronous(), "NORMAL"));
+    }
+
+    private static String pragma(String raw, String fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        StringBuilder builder = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_') {
+                builder.append(c);
+            }
+        }
+        return builder.length() == 0 ? fallback : builder.toString();
     }
 
     @Override
@@ -54,7 +67,8 @@ public final class SqliteStorage extends SqlStorage {
 
     @Override
     protected List<String> schemaStatements() {
-        List<String> statements = new ArrayList<>(4);
+        List<String> statements = new ArrayList<>(5);
+        statements.add("PRAGMA journal_mode=" + pragma(config.getSqliteJournalMode(), "WAL"));
         statements.add("CREATE TABLE IF NOT EXISTS " + cooldownTable + " ("
                 + "uuid TEXT NOT NULL, "
                 + "kit TEXT NOT NULL, "

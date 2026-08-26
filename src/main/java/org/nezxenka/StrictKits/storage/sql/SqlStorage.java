@@ -12,8 +12,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -119,66 +117,6 @@ public abstract class SqlStorage implements StorageProvider {
     }
 
     @Override
-    public List<PlayerRecord> loadBulk(Collection<UUID> uuids) throws SQLException {
-        List<PlayerRecord> records = new ArrayList<>(uuids.size());
-        if (uuids.isEmpty()) {
-            return records;
-        }
-        Map<UUID, PlayerRecord> index = new HashMap<>(uuids.size() * 2);
-        for (UUID uuid : uuids) {
-            PlayerRecord record = PlayerRecord.empty(uuid);
-            index.put(uuid, record);
-            records.add(record);
-        }
-        String placeholders = placeholders(uuids.size());
-        try (Connection connection = connection()) {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT uuid, kit, used_at FROM " + cooldownTable + " WHERE uuid IN (" + placeholders + ")")) {
-                bindUuids(statement, uuids);
-                try (ResultSet result = statement.executeQuery()) {
-                    while (result.next()) {
-                        PlayerRecord record = index.get(UUID.fromString(result.getString(1)));
-                        if (record != null) {
-                            record.getCooldowns().put(result.getString(2), result.getLong(3));
-                        }
-                    }
-                }
-            }
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT uuid, kit FROM " + claimTable + " WHERE uuid IN (" + placeholders + ")")) {
-                bindUuids(statement, uuids);
-                try (ResultSet result = statement.executeQuery()) {
-                    while (result.next()) {
-                        PlayerRecord record = index.get(UUID.fromString(result.getString(1)));
-                        if (record != null) {
-                            record.getClaims().add(result.getString(2));
-                        }
-                    }
-                }
-            }
-        }
-        return records;
-    }
-
-    private static void bindUuids(PreparedStatement statement, Collection<UUID> uuids) throws SQLException {
-        int position = 1;
-        for (UUID uuid : uuids) {
-            statement.setString(position++, uuid.toString());
-        }
-    }
-
-    private static String placeholders(int count) {
-        StringBuilder builder = new StringBuilder(count * 2);
-        for (int i = 0; i < count; i++) {
-            if (i > 0) {
-                builder.append(',');
-            }
-            builder.append('?');
-        }
-        return builder.toString();
-    }
-
-    @Override
     public void writeCooldowns(List<DataEntry> entries) throws SQLException {
         write(upsertCooldown, entries);
     }
@@ -198,8 +136,7 @@ public abstract class SqlStorage implements StorageProvider {
             connection.setAutoCommit(false);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 int pending = 0;
-                for (int i = 0; i < entries.size(); i++) {
-                    DataEntry entry = entries.get(i);
+                for (DataEntry entry : entries) {
                     statement.setString(1, entry.getUuid().toString());
                     statement.setString(2, entry.getKit());
                     statement.setLong(3, entry.getTimestamp());

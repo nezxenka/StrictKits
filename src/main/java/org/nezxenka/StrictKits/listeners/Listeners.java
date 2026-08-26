@@ -12,7 +12,6 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.InventoryHolder;
 import org.nezxenka.StrictKits.Main;
-import org.nezxenka.StrictKits.gui.KitMenu;
 import org.nezxenka.StrictKits.gui.MenuHolder;
 import org.nezxenka.StrictKits.kit.Kit;
 import org.nezxenka.StrictKits.kit.KitService;
@@ -30,18 +29,19 @@ public final class Listeners implements Listener {
         if (event.getLoginResult() != AsyncPlayerPreLoginEvent.Result.ALLOWED) {
             return;
         }
-        plugin.getPlayers().loadBlocking(event.getUniqueId());
+        plugin.getPlayers().preload(event.getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         if (plugin.getPlayers().isLoaded(player.getUniqueId())) {
+            plugin.getPlayers().markOnline(player.getUniqueId());
             handleFirstJoin(player);
             return;
         }
         plugin.getPlayers().getWorkers().execute(() -> {
-            plugin.getPlayers().loadBlocking(player.getUniqueId());
+            plugin.getPlayers().markOnline(player.getUniqueId());
             Bukkit.getScheduler().runTask(plugin, () -> {
                 if (player.isOnline()) {
                     handleFirstJoin(player);
@@ -85,30 +85,25 @@ public final class Listeners implements Listener {
 
         MenuHolder menu = (MenuHolder) holder;
         int slot = event.getRawSlot();
-
-        if (menu.getType() == MenuHolder.Type.PREVIEW) {
-            if (slot == KitMenu.SLOT_EXIT) {
-                player.closeInventory();
-            }
+        if (slot < 0) {
             return;
         }
 
-        if (menu.getTotalPages() > 1) {
-            if (slot == KitMenu.SLOT_EXIT) {
-                player.closeInventory();
-                return;
-            }
-            if (slot == KitMenu.SLOT_PREVIOUS && menu.getPage() > 1) {
-                reopen(player, menu.getPage() - 1);
-                return;
-            }
-            if (slot == KitMenu.SLOT_NEXT && menu.getPage() < menu.getTotalPages()) {
-                reopen(player, menu.getPage() + 1);
-                return;
-            }
-        } else if (slot == KitMenu.SLOT_EXIT && event.getView().getTopInventory().getSize() >= 54
-                && menu.kitAt(slot) == null) {
-            player.closeInventory();
+        if (slot == menu.getExitSlot()) {
+            close(player);
+            return;
+        }
+
+        if (menu.getType() == MenuHolder.Type.PREVIEW) {
+            return;
+        }
+
+        if (slot == menu.getPreviousSlot() && menu.getPage() > 1) {
+            reopen(player, menu.getPage() - 1);
+            return;
+        }
+        if (slot == menu.getNextSlot() && menu.getPage() < menu.getTotalPages()) {
+            reopen(player, menu.getPage() + 1);
             return;
         }
 
@@ -125,6 +120,15 @@ public final class Listeners implements Listener {
         if (service.give(player, kit)) {
             reopen(player, menu.getPage());
         }
+    }
+
+    private void close(Player player) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) {
+                player.closeInventory();
+                player.updateInventory();
+            }
+        });
     }
 
     private void reopen(Player player, int page) {

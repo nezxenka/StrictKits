@@ -1,15 +1,23 @@
 package org.nezxenka.StrictKits;
 
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.configuration.Configuration;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 import org.nezxenka.StrictKits.commands.AdminCommands;
 import org.nezxenka.StrictKits.commands.PlayerCommands;
 import org.nezxenka.StrictKits.config.Messages;
 import org.nezxenka.StrictKits.config.Settings;
 import org.nezxenka.StrictKits.gui.KitMenu;
+import org.nezxenka.StrictKits.gui.MenuHolder;
+import org.nezxenka.StrictKits.kit.Kit;
 import org.nezxenka.StrictKits.kit.KitManager;
 import org.nezxenka.StrictKits.kit.KitService;
 import org.nezxenka.StrictKits.kit.KitStorage;
@@ -31,11 +39,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.logging.Level;
 
 public final class Main extends JavaPlugin {
-
-    private static Main instance;
 
     private Settings settings;
     private Messages messages;
@@ -46,14 +57,15 @@ public final class Main extends JavaPlugin {
     private KitManager kits;
     private KitService kitService;
     private KitMenu kitMenu;
+    private BukkitTask menuRefreshTask;
 
     @Override
     public void onEnable() {
-        instance = this;
         saveDefaultConfig();
         saveResourceIfMissing("database.yml");
 
         loadConfiguration();
+        this.databaseConfig = new DatabaseConfig(readYaml("database.yml"));
         Messenger.detect();
 
         if (!setupStorage()) {
@@ -65,16 +77,17 @@ public final class Main extends JavaPlugin {
         this.players = new PlayerDataManager(storage, cache, databaseConfig, getLogger());
         this.players.start();
 
-        this.kits = new KitManager(new KitStorage(new File(getDataFolder(), "Kits"), getLogger()), players.getWorkers());
+        this.kits = new KitManager(new KitStorage(new File(getDataFolder(), "Kits"), getLogger()));
         int loaded = kits.loadAll();
+        warnAboutMissingIcons();
 
         buildServices();
+        startMenuRefresh();
 
         registerCommands();
         getServer().getPluginManager().registerEvents(new Listeners(this), this);
 
-        runLegacyImport();
-        preloadOnlinePlayers();
+        runStartupTasks();
 
         getLogger().info("StrictKits " + getDescription().getVersion() + " включен");
         getLogger().info("Хранилище: " + storage.name() + ", кэш: " + cache.name() + ", китов: " + loaded);
@@ -82,8 +95,13 @@ public final class Main extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (menuRefreshTask != null) {
+            menuRefreshTask.cancel();
+            menuRefreshTask = null;
+        }
         if (kits != null) {
             kits.flushAllBlocking();
+            kits.shutdown();
         }
         if (players != null) {
             players.shutdown();
@@ -94,7 +112,6 @@ public final class Main extends JavaPlugin {
         if (storage != null) {
             storage.shutdown();
         }
-        instance = null;
         getLogger().info("StrictKits выключен");
     }
 
@@ -103,7 +120,6 @@ public final class Main extends JavaPlugin {
         this.settings = new Settings(config);
         this.messages = new Messages(loadMessages(), getDescription().getVersion());
         GUItems.load(config, messages);
-        this.databaseConfig = new DatabaseConfig(loadYaml("database.yml"));
     }
 
     private void buildServices() {
@@ -112,33 +128,86 @@ public final class Main extends JavaPlugin {
     }
 
     private FileConfiguration loadMessages() {
+        saveResourceIfMissing("messages.yml");
         File file = new File(getDataFolder(), "messages.yml");
-        YamlConfiguration config = loadYaml("messages.yml");
-        if (config.getDefaults() == null) {
+        YamlConfiguration config = new YamlConfiguration();
+        boolean readable = readInto(config, file, "messages.yml");
+        Configuration defaults = jarDefaults("messages.yml");
+        if (defaults != null) {
+            config.setDefaults(defaults);
+        }
+        if (!readable || defaults == null || !hasMissingKeys(config, defaults)) {
             return config;
         }
         config.options().copyDefaults(true);
         try {
             config.save(file);
+            getLogger().info("messages.yml дополнен новыми ключами, комментарии в нём не сохраняются");
         } catch (IOException e) {
             getLogger().log(Level.WARNING, "Не удалось обновить messages.yml", e);
         }
         return config;
     }
 
-    private YamlConfiguration loadYaml(String name) {
-        YamlConfiguration config = YamlConfiguration.loadConfiguration(new File(getDataFolder(), name));
-        InputStream defaults = getResource(name);
+    private YamlConfiguration readYaml(String name) {
+        YamlConfiguration config = new YamlConfiguration();
+        readInto(config, new File(getDataFolder(), name), name);
+        Configuration defaults = jarDefaults(name);
         if (defaults != null) {
-            config.setDefaults(YamlConfiguration.loadConfiguration(
-                    new InputStreamReader(defaults, StandardCharsets.UTF_8)));
+            config.setDefaults(defaults);
         }
         return config;
+    }
+
+    private boolean readInto(YamlConfiguration config, File file, String name) {
+        if (!file.exists()) {
+            return true;
+        }
+        try {
+            config.load(file);
+            return true;
+        } catch (IOException e) {
+            getLogger().log(Level.SEVERE, "Не удалось прочитать " + name + ", применяются значения по умолчанию", e);
+        } catch (InvalidConfigurationException e) {
+            getLogger().severe("Синтаксическая ошибка в " + name + ", применяются значения по умолчанию");
+            getLogger().severe(e.getMessage());
+        }
+        return false;
+    }
+
+    private Configuration jarDefaults(String name) {
+        InputStream resource = getResource(name);
+        if (resource == null) {
+            return null;
+        }
+        return YamlConfiguration.loadConfiguration(new InputStreamReader(resource, StandardCharsets.UTF_8));
+    }
+
+    private static boolean hasMissingKeys(YamlConfiguration config, Configuration defaults) {
+        for (String key : defaults.getKeys(true)) {
+            if (!config.contains(key, true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void saveResourceIfMissing(String name) {
         if (!new File(getDataFolder(), name).exists()) {
             saveResource(name, false);
+        }
+    }
+
+    private void warnAboutMissingIcons() {
+        List<String> missing = new ArrayList<>();
+        for (Kit kit : kits.all()) {
+            if (kit.getIcon() == null) {
+                missing.add(kit.getName());
+            }
+        }
+        if (!missing.isEmpty()) {
+            getLogger().warning("Без иконки (используется стандартная, задайте через /sk seticon): "
+                    + String.join(", ", missing));
         }
     }
 
@@ -153,22 +222,21 @@ public final class Main extends JavaPlugin {
             return false;
         }
 
-        try {
-            if (databaseConfig.getCacheType() == DatabaseConfig.CacheType.REDIS) {
-                this.cache = new RedisCache(databaseConfig, getLogger());
-                cache.initialize();
-            } else {
-                this.cache = new MemoryCache(databaseConfig.getRedisEntryTtlSeconds() * 1000L);
-                cache.initialize();
-            }
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Redis недоступен, используется локальный кэш", e);
-            this.cache = new MemoryCache(databaseConfig.getRedisEntryTtlSeconds() * 1000L);
+        if (databaseConfig.getCacheType() == DatabaseConfig.CacheType.REDIS) {
+            RedisCache redis = new RedisCache(databaseConfig, getLogger());
             try {
-                cache.initialize();
-            } catch (Exception ignored) {
+                redis.initialize();
+                this.cache = redis;
+                return true;
+            } catch (Exception e) {
+                redis.shutdown();
+                getLogger().log(Level.SEVERE, "Redis недоступен, используется локальный кэш", e);
             }
         }
+
+        MemoryCache memory = new MemoryCache(databaseConfig.getMemoryEntryTtlMillis());
+        memory.initialize();
+        this.cache = memory;
         return true;
     }
 
@@ -181,39 +249,80 @@ public final class Main extends JavaPlugin {
         getCommand("kit").setTabCompleter(player);
     }
 
-    private void runLegacyImport() {
-        if (!databaseConfig.isImportLegacyYaml()) {
+    private void startMenuRefresh() {
+        if (menuRefreshTask != null) {
+            menuRefreshTask.cancel();
+            menuRefreshTask = null;
+        }
+        int ticks = settings.getGuiRefreshTicks();
+        if (ticks <= 0) {
             return;
         }
-        File folder = new File(getDataFolder(), "Cooldowns");
-        LegacyImporter importer = new LegacyImporter(folder, storage, getLogger());
-        if (!importer.hasLegacyData()) {
-            return;
-        }
-        players.getWorkers().execute(importer::run);
+        menuRefreshTask = Bukkit.getScheduler().runTaskTimer(this, this::refreshOpenMenus, ticks, ticks);
     }
 
-    private void preloadOnlinePlayers() {
+    private void refreshOpenMenus() {
         for (Player online : Bukkit.getOnlinePlayers()) {
-            players.getWorkers().execute(() -> players.loadBlocking(online.getUniqueId()));
+            Inventory top = online.getOpenInventory().getTopInventory();
+            InventoryHolder holder = top.getHolder();
+            if (holder instanceof MenuHolder) {
+                kitMenu.refresh(online, (MenuHolder) holder, top);
+            }
         }
+    }
+
+    private void runStartupTasks() {
+        List<UUID> online = new ArrayList<>();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            online.add(player.getUniqueId());
+        }
+        LegacyImporter importer = pendingLegacyImport();
+        players.getWorkers().execute(() -> {
+            if (importer != null) {
+                importer.run();
+            }
+            for (UUID uuid : online) {
+                players.markOnline(uuid);
+            }
+        });
+    }
+
+    private LegacyImporter pendingLegacyImport() {
+        if (!databaseConfig.isImportLegacyYaml()) {
+            return null;
+        }
+        File folder = new File(getDataFolder(), "Cooldowns");
+        if (!new File(folder, "Cooldowns.yml").exists() && !new File(folder, "OneTimeUseList.yml").exists()) {
+            return null;
+        }
+        Map<String, UUID> known = new HashMap<>();
+        for (OfflinePlayer offline : Bukkit.getOfflinePlayers()) {
+            String name = offline.getName();
+            if (name != null) {
+                known.put(name.toLowerCase(), offline.getUniqueId());
+            }
+        }
+        return new LegacyImporter(folder, storage, getLogger(), known);
     }
 
     public void reloadPlugin() {
+        closeOpenMenus();
         reloadConfig();
-        FileConfiguration config = getConfig();
-        this.settings = new Settings(config);
-        this.messages = new Messages(loadMessages(), getDescription().getVersion());
-        GUItems.load(config, messages);
+        loadConfiguration();
         Messenger.detect();
         kits.flushAllBlocking();
         kits.loadAll();
+        warnAboutMissingIcons();
         buildServices();
-        registerCommands();
+        startMenuRefresh();
     }
 
-    public static Main getInstance() {
-        return instance;
+    private void closeOpenMenus() {
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (online.getOpenInventory().getTopInventory().getHolder() instanceof MenuHolder) {
+                online.closeInventory();
+            }
+        }
     }
 
     public Settings getSettings() {

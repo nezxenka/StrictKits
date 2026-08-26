@@ -41,6 +41,7 @@ public final class DatabaseConfig {
     private final long poolLeakDetectionThreshold;
 
     private final CacheType cacheType;
+    private final int memoryEntryTtlSeconds;
     private final String redisHost;
     private final int redisPort;
     private final String redisUsername;
@@ -88,6 +89,7 @@ public final class DatabaseConfig {
         this.poolLeakDetectionThreshold = config.getLong("storage.mysql.pool.leak-detection-threshold", 0L);
 
         this.cacheType = parseCache(config.getString("cache.type", "MEMORY"));
+        this.memoryEntryTtlSeconds = Math.max(1, config.getInt("cache.memory.entry-ttl-seconds", 300));
         this.redisHost = config.getString("cache.redis.host", "127.0.0.1");
         this.redisPort = config.getInt("cache.redis.port", 6379);
         this.redisUsername = config.getString("cache.redis.username", "");
@@ -96,7 +98,7 @@ public final class DatabaseConfig {
         this.redisSsl = config.getBoolean("cache.redis.ssl", false);
         this.redisTimeout = config.getInt("cache.redis.timeout", 2000);
         this.redisKeyPrefix = config.getString("cache.redis.key-prefix", "strictkits:");
-        this.redisEntryTtlSeconds = config.getInt("cache.redis.entry-ttl-seconds", 3600);
+        this.redisEntryTtlSeconds = Math.max(1, config.getInt("cache.redis.entry-ttl-seconds", 3600));
         this.redisChannel = config.getString("cache.redis.pubsub-channel", "strictkits:sync");
         this.redisMaxTotal = Math.max(1, config.getInt("cache.redis.pool.max-total", 16));
         this.redisMaxIdle = Math.max(1, config.getInt("cache.redis.pool.max-idle", 8));
@@ -224,6 +226,10 @@ public final class DatabaseConfig {
 
     public long getPoolLeakDetectionThreshold() {
         return poolLeakDetectionThreshold;
+    }
+
+    public long getMemoryEntryTtlMillis() {
+        return memoryEntryTtlSeconds * 1000L;
     }
 
     public CacheType getCacheType() {

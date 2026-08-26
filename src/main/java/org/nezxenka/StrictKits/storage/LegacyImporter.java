@@ -1,13 +1,10 @@
 package org.nezxenka.StrictKits.storage;
 
-import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,11 +16,14 @@ public final class LegacyImporter {
     private final File folder;
     private final StorageProvider storage;
     private final Logger logger;
+    private final Map<String, UUID> knownPlayers;
+    private int skipped;
 
-    public LegacyImporter(File folder, StorageProvider storage, Logger logger) {
+    public LegacyImporter(File folder, StorageProvider storage, Logger logger, Map<String, UUID> knownPlayers) {
         this.folder = folder;
         this.storage = storage;
         this.logger = logger;
+        this.knownPlayers = knownPlayers;
     }
 
     public boolean hasLegacyData() {
@@ -31,16 +31,19 @@ public final class LegacyImporter {
     }
 
     public void run() {
-        Map<String, UUID> resolved = new HashMap<>();
+        skipped = 0;
         int imported = 0;
-        imported += importCooldowns(resolved);
-        imported += importClaims(resolved);
+        imported += importCooldowns();
+        imported += importClaims();
         if (imported > 0) {
             logger.info("Импортировано записей из YAML в базу: " + imported);
         }
+        if (skipped > 0) {
+            logger.warning("Пропущено записей с неизвестными игроками: " + skipped);
+        }
     }
 
-    private int importCooldowns(Map<String, UUID> resolved) {
+    private int importCooldowns() {
         File file = new File(folder, "Cooldowns.yml");
         if (!file.exists()) {
             return 0;
@@ -57,7 +60,7 @@ public final class LegacyImporter {
             if (split <= 0 || split == key.length() - 1) {
                 continue;
             }
-            UUID uuid = resolve(resolved, key.substring(0, split));
+            UUID uuid = resolve(key.substring(0, split));
             if (uuid == null) {
                 continue;
             }
@@ -66,7 +69,7 @@ public final class LegacyImporter {
         return write(file, entries, true);
     }
 
-    private int importClaims(Map<String, UUID> resolved) {
+    private int importClaims() {
         File file = new File(folder, "OneTimeUseList.yml");
         if (!file.exists()) {
             return 0;
@@ -76,7 +79,7 @@ public final class LegacyImporter {
         long now = System.currentTimeMillis();
         for (String kit : config.getKeys(false)) {
             for (String name : config.getStringList(kit)) {
-                UUID uuid = resolve(resolved, name);
+                UUID uuid = resolve(name);
                 if (uuid != null) {
                     entries.add(new DataEntry(uuid, kit.toLowerCase(), now));
                 }
@@ -104,25 +107,22 @@ public final class LegacyImporter {
         }
     }
 
-    private UUID resolve(Map<String, UUID> cache, String name) {
-        UUID cached = cache.get(name);
-        if (cached != null) {
-            return cached;
-        }
-        try {
-            OfflinePlayer offline = Bukkit.getOfflinePlayer(name);
-            UUID uuid = offline.getUniqueId();
-            cache.put(name, uuid);
-            return uuid;
-        } catch (Exception e) {
+    private UUID resolve(String name) {
+        if (name == null || name.isEmpty()) {
             return null;
         }
+        UUID uuid = knownPlayers.get(name.toLowerCase());
+        if (uuid == null) {
+            skipped++;
+        }
+        return uuid;
     }
 
     private void archive(File file) {
         File target = new File(file.getParentFile(), file.getName() + ".migrated");
-        if (target.exists()) {
-            target.delete();
+        if (target.exists() && !target.delete()) {
+            logger.warning("Не удалось удалить старый " + target.getName());
+            return;
         }
         if (!file.renameTo(target)) {
             logger.warning("Не удалось переименовать " + file.getName() + " после импорта");

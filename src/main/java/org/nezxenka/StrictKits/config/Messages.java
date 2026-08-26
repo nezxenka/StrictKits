@@ -1,5 +1,6 @@
 package org.nezxenka.StrictKits.config;
 
+import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.nezxenka.StrictKits.player.PlayerDataManager;
@@ -60,6 +61,7 @@ public final class Messages {
     private final Message loreCooldown;
     private final String loreClaimed;
     private final String loreNoPermission;
+    private final Message defaultIconName;
     private final String exitButton;
     private final String previousButton;
     private final String nextButton;
@@ -76,6 +78,7 @@ public final class Messages {
     private final Message adminInventoryUpdated;
     private final String adminCooldownNotANumber;
     private final String adminCooldownNegative;
+    private final Message adminCooldownTooLarge;
     private final Message adminCooldownUpdated;
     private final Message adminFlagUpdated;
     private final String adminIconHandEmpty;
@@ -118,6 +121,7 @@ public final class Messages {
         this.loreCooldown = template(config, "gui.lore-cooldown", COOLDOWN);
         this.loreClaimed = plain(config, "gui.lore-claimed");
         this.loreNoPermission = plain(config, "gui.lore-no-permission");
+        this.defaultIconName = template(config, "gui.default-icon-name", KIT);
         this.exitButton = plain(config, "gui.buttons.exit");
         this.previousButton = plain(config, "gui.buttons.previous");
         this.nextButton = plain(config, "gui.buttons.next");
@@ -134,6 +138,7 @@ public final class Messages {
         this.adminInventoryUpdated = adminTemplate(config, prefix, "admin.inventory-updated", KIT);
         this.adminCooldownNotANumber = prefixed(config, prefix, "admin.cooldown-not-a-number");
         this.adminCooldownNegative = prefixed(config, prefix, "admin.cooldown-negative");
+        this.adminCooldownTooLarge = adminTemplate(config, prefix, "admin.cooldown-too-large", SECONDS);
         this.adminCooldownUpdated = adminTemplate(config, prefix, "admin.cooldown-updated", KIT, SECONDS);
         this.adminFlagUpdated = adminTemplate(config, prefix, "admin.flag-updated", FLAG, KIT, VALUE);
         this.adminIconHandEmpty = prefixed(config, prefix, "admin.icon-hand-empty");
@@ -207,6 +212,10 @@ public final class Messages {
 
     private static Map<String, String> readSyntax(FileConfiguration config, Message usage) {
         ConfigurationSection section = config.getConfigurationSection("admin.syntax");
+        if (section == null || section.getKeys(false).isEmpty()) {
+            Configuration fallback = config.getDefaults();
+            section = fallback == null ? null : fallback.getConfigurationSection("admin.syntax");
+        }
         if (section == null) {
             return new HashMap<>(0);
         }
@@ -313,6 +322,10 @@ public final class Messages {
         return loreClaimed;
     }
 
+    public String getDefaultIconName(String kit) {
+        return defaultIconName.format(kit);
+    }
+
     public String getLoreNoPermission() {
         return loreNoPermission;
     }
@@ -372,6 +385,10 @@ public final class Messages {
 
     public String getAdminCooldownNegative() {
         return adminCooldownNegative;
+    }
+
+    public String getAdminCooldownTooLarge(long seconds) {
+        return adminCooldownTooLarge.format(Long.toString(seconds));
     }
 
     public String getAdminCooldownUpdated(String kit, long seconds) {

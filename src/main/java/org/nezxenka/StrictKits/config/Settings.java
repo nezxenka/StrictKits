@@ -4,6 +4,8 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 public final class Settings {
 
+    private static final int MIN_REFRESH_TICKS = 10;
+
     private final boolean guiDisplay;
     private final boolean guiPreview;
     private final boolean displayWithoutPermission;
@@ -20,7 +22,8 @@ public final class Settings {
         this.listRequiresPermission = config.getBoolean("permission.kit-list");
         this.previewRequiresPermission = config.getBoolean("permission.kit-preview");
         this.commandThrottleMillis = Math.max(0L, config.getLong("settings.command-throttle-millis"));
-        this.guiRefreshTicks = Math.max(0, config.getInt("settings.gui-refresh-ticks"));
+        int refreshTicks = config.getInt("settings.gui-refresh-ticks");
+        this.guiRefreshTicks = refreshTicks <= 0 ? 0 : Math.max(MIN_REFRESH_TICKS, refreshTicks);
         this.guiRows = Math.min(6, Math.max(1, config.getInt("gui.rows")));
     }
 

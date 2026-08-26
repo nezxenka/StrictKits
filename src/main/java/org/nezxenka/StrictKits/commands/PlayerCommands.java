@@ -29,7 +29,7 @@ public final class PlayerCommands implements TabExecutor {
 
     public PlayerCommands(Main plugin) {
         this.plugin = plugin;
-        this.throttle = new Throttle(plugin.getSettings().getCommandThrottleMillis());
+        this.throttle = new Throttle();
     }
 
     @Override
@@ -44,7 +44,7 @@ public final class PlayerCommands implements TabExecutor {
                 return true;
             }
             Player player = (Player) sender;
-            if (!throttle.allow(player.getUniqueId())) {
+            if (!throttle.allow(player.getUniqueId(), plugin.getSettings().getCommandThrottleMillis())) {
                 Messenger.send(player, messages.getThrottled());
                 return true;
             }
@@ -129,7 +129,7 @@ public final class PlayerCommands implements TabExecutor {
             return true;
         }
         Player player = (Player) sender;
-        if (!throttle.allow(player.getUniqueId())) {
+        if (!throttle.allow(player.getUniqueId(), plugin.getSettings().getCommandThrottleMillis())) {
             Messenger.send(player, messages.getThrottled());
             return true;
         }
@@ -148,8 +148,7 @@ public final class PlayerCommands implements TabExecutor {
         StringBuilder builder = new StringBuilder(all.size() * 16);
         builder.append(messages.getListPrefix());
         int shown = 0;
-        for (int i = 0; i < all.size(); i++) {
-            Kit kit = all.get(i);
+        for (Kit kit : all) {
             if (!kit.hasAccess(player)) {
                 continue;
             }
@@ -193,8 +192,7 @@ public final class PlayerCommands implements TabExecutor {
 
     static void collect(List<String> target, List<String> source, String prefix) {
         int length = prefix.length();
-        for (int i = 0; i < source.size(); i++) {
-            String value = source.get(i);
+        for (String value : source) {
             if (value.length() >= length && value.regionMatches(true, 0, prefix, 0, length)) {
                 target.add(value);
             }

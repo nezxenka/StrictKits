@@ -18,8 +18,8 @@ public final class KitStorage {
     public KitStorage(File folder, Logger logger) {
         this.folder = folder;
         this.logger = logger;
-        if (!folder.exists()) {
-            folder.mkdirs();
+        if (!folder.exists() && !folder.mkdirs()) {
+            logger.warning("Не удалось создать папку китов " + folder.getPath());
         }
     }
 
@@ -31,7 +31,12 @@ public final class KitStorage {
         }
         for (File file : files) {
             try {
-                kits.add(read(file));
+                Kit kit = read(file);
+                if (kit == null) {
+                    logger.warning("Пропущен кит с недопустимым именем: " + file.getName());
+                    continue;
+                }
+                kits.add(kit);
             } catch (Exception e) {
                 logger.log(Level.WARNING, "Не удалось загрузить кит из " + file.getName(), e);
             }
@@ -41,9 +46,16 @@ public final class KitStorage {
 
     private Kit read(File file) {
         String fileName = file.getName();
-        String name = fileName.substring(0, fileName.length() - 4);
+        String fallback = fileName.substring(0, fileName.length() - 4);
         YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-        Kit kit = new Kit(config.getString("Name", name));
+        String name = config.getString("Name", fallback);
+        if (!Kit.isValidName(name)) {
+            name = fallback;
+        }
+        if (!Kit.isValidName(name)) {
+            return null;
+        }
+        Kit kit = new Kit(name);
         kit.setCooldown(config.getLong("Cooldown", 0L));
         kit.setPermission(config.getString("Permission", "strictkits.kits." + name));
         kit.setOneTimeUse(config.getBoolean("OneTimeUse", false));
@@ -73,6 +85,10 @@ public final class KitStorage {
     }
 
     public void save(Kit kit) {
+        if (!Kit.isValidName(kit.getName())) {
+            logger.warning("Отказ сохранять кит с недопустимым именем: " + kit.getName());
+            return;
+        }
         File file = fileOf(kit);
         YamlConfiguration config = new YamlConfiguration();
         config.set("Name", kit.getName());
@@ -91,13 +107,12 @@ public final class KitStorage {
     }
 
     public void delete(Kit kit) {
+        if (!Kit.isValidName(kit.getName())) {
+            return;
+        }
         File file = fileOf(kit);
         if (file.exists() && !file.delete()) {
             logger.warning("Не удалось удалить файл кита " + file.getName());
         }
-    }
-
-    public File getFolder() {
-        return folder;
     }
 }
