@@ -148,6 +148,7 @@ public final class Kit {
                 || player.hasPermission("strictkits.admin");
     }
 
+    @SuppressWarnings("deprecation")
     public void applyTo(Player player) {
         PlayerInventory inventory = player.getInventory();
         ItemStack[] main = mainContent;
@@ -168,6 +169,7 @@ public final class Kit {
         applyArmor(player, armor, 2);
         applyArmor(player, armor, 1);
         applyArmor(player, armor, 0);
+        player.updateInventory();
     }
 
     private void applyArmor(Player player, ItemStack[] armor, int slot) {
