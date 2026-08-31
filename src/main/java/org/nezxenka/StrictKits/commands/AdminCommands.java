@@ -245,9 +245,14 @@ public final class AdminCommands implements TabExecutor {
         if (kit == null) {
             return true;
         }
-        kit.setPermission(args[2]);
+        String perm = args[2].trim();
+        if (!perm.matches("^[A-Za-z0-9._-]{1,64}$")) {
+            Messenger.send(sender, messages.getAdminKitNameInvalid());
+            return true;
+        }
+        kit.setPermission(perm);
         plugin.getKits().flush(kit);
-        Messenger.send(sender, messages.getAdminPermissionUpdated(kit.getName(), args[2]));
+        Messenger.send(sender, messages.getAdminPermissionUpdated(kit.getName(), perm));
         return true;
     }
 

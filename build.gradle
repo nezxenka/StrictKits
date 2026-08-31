@@ -1,14 +1,20 @@
 plugins {
     id 'java'
-    id 'com.github.johnrengelman.shadow' version '8.1.1'
+    id 'com.gradleup.shadow' version '8.3.6'
 }
+
+def isLegacy = findProperty("legacy") != null
 
 group = 'org.nezxenka'
 version = '2.1'
 
+ext.apiVersion = isLegacy ? '1.16' : '1.21'
+ext.javaRelease = isLegacy ? 16 : 21
+ext.paperApi = isLegacy ? 'com.destroystokyo.paper:paper-api:1.16.5-R0.1-SNAPSHOT' : 'io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT'
+
 java {
-    sourceCompatibility = JavaVersion.VERSION_16
-    targetCompatibility = JavaVersion.VERSION_16
+    sourceCompatibility = isLegacy ? JavaVersion.VERSION_16 : JavaVersion.VERSION_21
+    targetCompatibility = isLegacy ? JavaVersion.VERSION_16 : JavaVersion.VERSION_21
 }
 
 repositories {
@@ -23,19 +29,17 @@ configurations {
 }
 
 dependencies {
-    compileOnly 'com.destroystokyo.paper:paper-api:1.16.5-R0.1-SNAPSHOT'
+    compileOnly paperApi
     compileOnly 'me.clip:placeholderapi:2.11.6'
 
-    shaded 'org.slf4j:slf4j-api:1.7.25'
-    shaded 'org.slf4j:slf4j-jdk14:1.7.25'
-    shaded 'com.zaxxer:HikariCP:4.0.3'
-    shaded 'org.xerial:sqlite-jdbc:3.42.0.0'
+    shaded 'com.zaxxer:HikariCP:6.2.1'
+    shaded 'org.xerial:sqlite-jdbc:3.49.1.0'
 
-    shaded('mysql:mysql-connector-java:8.0.33') {
+    shaded('com.mysql:mysql-connector-j:9.4.0') {
         exclude group: 'com.google.protobuf'
     }
 
-    shaded('redis.clients:jedis:3.8.0') {
+    shaded('redis.clients:jedis:5.2.0') {
         exclude group: 'org.slf4j'
         exclude group: 'com.google.code.gson'
     }
@@ -43,26 +47,28 @@ dependencies {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.release = javaRelease
 }
 
 processResources {
+    inputs.property("apiVersion", apiVersion)
     filteringCharset = 'UTF-8'
     filesMatching('plugin.yml') {
-        expand(project.properties)
+        expand(project.properties + [apiVersion: apiVersion, version: version])
     }
 }
 
 jar {
     enabled = false
+    archiveClassifier.set(isLegacy ? 'legacy' : '')
 }
 
 shadowJar {
-    archiveClassifier.set('')
+    archiveClassifier.set(isLegacy ? 'legacy' : '')
     configurations = [project.configurations.shaded]
 
     mergeServiceFiles()
 
-    relocate 'org.slf4j', 'org.nezxenka.StrictKits.libs.slf4j'
     relocate 'com.zaxxer.hikari', 'org.nezxenka.StrictKits.libs.hikari'
     relocate 'redis.clients', 'org.nezxenka.StrictKits.libs.redis'
     relocate 'org.apache.commons.pool2', 'org.nezxenka.StrictKits.libs.pool2'
@@ -81,18 +87,34 @@ shadowJar {
 
     exclude 'org/sqlite/native/Linux-Android/**'
     exclude 'org/sqlite/native/FreeBSD/**'
-    exclude 'org/sqlite/native/Linux/ppc64/**'
-    exclude 'org/sqlite/native/Linux/x86/**'
-    exclude 'org/sqlite/native/Linux/arm/**'
     exclude 'org/sqlite/native/Linux/armv6/**'
-    exclude 'org/sqlite/native/Linux/armv7/**'
-    exclude 'org/sqlite/native/Linux-Musl/x86/**'
     exclude 'org/sqlite/native/Windows/x86/**'
     exclude 'org/sqlite/native/Windows/armv7/**'
-    exclude 'org/sqlite/native/Windows/aarch64/**'
 
     exclude 'com/mysql/cj/xdevapi/**'
     exclude 'com/mysql/cj/x/**'
 }
 
 build.dependsOn shadowJar
+
+// Task to build both variants sequentially
+tasks.register('buildBoth') {
+    group = 'build'
+    description = 'Build both legacy (1.16) and modern (1.21) jars'
+    doLast {
+        println "Use: ./gradlew shadowJar (modern) && ./gradlew shadowJar -Plegacy (legacy)"
+        println "Or run: ./gradlew buildBothExec (executes both)"
+    }
+}
+
+tasks.register('buildBothExec') {
+    group = 'build'
+    description = 'Execute both builds via GradleBuild'
+    dependsOn shadowJar
+    doLast {
+        def legacyBuild = tasks.create('legacyBuildInternal', GradleBuild)
+        legacyBuild.tasks = ['clean', 'shadowJar']
+        legacyBuild.startParameter.projectProperties = ['legacy': '']
+        legacyBuild.startParameter.systemPropertiesArgs = [:]
+    }
+}

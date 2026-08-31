@@ -126,7 +126,6 @@ public final class Listeners implements Listener {
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (player.isOnline()) {
                 player.closeInventory();
-                player.updateInventory();
             }
         });
     }

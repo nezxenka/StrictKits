@@ -14,7 +14,22 @@ public final class SqliteStorage extends SqlStorage {
 
     public SqliteStorage(DatabaseConfig config, Logger logger, File dataFolder) {
         super(config, logger);
-        this.file = new File(dataFolder, config.getSqliteFile());
+        File requested = new File(dataFolder, config.getSqliteFile());
+        File resolved;
+        try {
+            String canonicalData = dataFolder.getCanonicalPath();
+            String canonicalFile = requested.getCanonicalPath();
+            if (!canonicalFile.startsWith(canonicalData + File.separator) && !canonicalFile.equals(canonicalData)) {
+                logger.warning("Путь к SQLite вне папки плагина заблокирован: " + config.getSqliteFile() + " -> используется data.db");
+                resolved = new File(dataFolder, "data.db");
+            } else {
+                resolved = requested;
+            }
+        } catch (java.io.IOException e) {
+            logger.warning("Не удалось проверить путь к БД: " + e.getMessage() + " -> используется data.db");
+            resolved = new File(dataFolder, "data.db");
+        }
+        this.file = resolved;
     }
 
     @Override

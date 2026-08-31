@@ -1,8 +1,9 @@
 name: StrictKits
 version: "${version}"
 main: org.nezxenka.StrictKits.Main
-description: Переписанный GreatKits под 1.16.5
-api-version: "1.16"
+description: Переписанный GreatKits
+api-version: "${apiVersion}"
+folia-supported: true
 softdepend: [PlaceholderAPI]
 authors:
   - nezxenka

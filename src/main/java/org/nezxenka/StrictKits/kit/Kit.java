@@ -121,7 +121,17 @@ public final class Kit {
     }
 
     public boolean isEmpty() {
-        return mainContent.length == 0 && armorContent.length == 0;
+        for (ItemStack item : mainContent) {
+            if (item != null && item.getType() != Material.AIR) {
+                return false;
+            }
+        }
+        for (ItemStack item : armorContent) {
+            if (item != null && item.getType() != Material.AIR) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void markDirty() {
@@ -158,7 +168,6 @@ public final class Kit {
         applyArmor(player, armor, 2);
         applyArmor(player, armor, 1);
         applyArmor(player, armor, 0);
-        player.updateInventory();
     }
 
     private void applyArmor(Player player, ItemStack[] armor, int slot) {
