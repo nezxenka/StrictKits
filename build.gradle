@@ -6,7 +6,7 @@ plugins {
 def isLegacy = findProperty("legacy") != null
 
 group = 'org.nezxenka'
-version = '2.1'
+version = '2.2'
 
 ext.apiVersion = isLegacy ? '1.16' : '1.21'
 ext.javaRelease = isLegacy ? 16 : 21
