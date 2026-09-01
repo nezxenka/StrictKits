@@ -121,7 +121,17 @@ public final class Kit {
     }
 
     public boolean isEmpty() {
-        return mainContent.length == 0 && armorContent.length == 0;
+        for (ItemStack item : mainContent) {
+            if (item != null && item.getType() != Material.AIR) {
+                return false;
+            }
+        }
+        for (ItemStack item : armorContent) {
+            if (item != null && item.getType() != Material.AIR) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void markDirty() {
@@ -138,6 +148,7 @@ public final class Kit {
                 || player.hasPermission("strictkits.admin");
     }
 
+    @SuppressWarnings("deprecation")
     public void applyTo(Player player) {
         PlayerInventory inventory = player.getInventory();
         ItemStack[] main = mainContent;

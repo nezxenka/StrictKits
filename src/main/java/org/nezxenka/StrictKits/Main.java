@@ -243,10 +243,14 @@ public final class Main extends JavaPlugin {
     private void registerCommands() {
         AdminCommands admin = new AdminCommands(this);
         PlayerCommands player = new PlayerCommands(this);
-        getCommand("strictkits").setExecutor(admin);
-        getCommand("strictkits").setTabCompleter(admin);
-        getCommand("kit").setExecutor(player);
-        getCommand("kit").setTabCompleter(player);
+        if (getCommand("strictkits") != null) {
+            getCommand("strictkits").setExecutor(admin);
+            getCommand("strictkits").setTabCompleter(admin);
+        }
+        if (getCommand("kit") != null) {
+            getCommand("kit").setExecutor(player);
+            getCommand("kit").setTabCompleter(player);
+        }
     }
 
     private void startMenuRefresh() {
@@ -276,33 +280,24 @@ public final class Main extends JavaPlugin {
         for (Player player : Bukkit.getOnlinePlayers()) {
             online.add(player.getUniqueId());
         }
-        LegacyImporter importer = pendingLegacyImport();
+        File folder = new File(getDataFolder(), "Cooldowns");
+        boolean hasLegacyFiles = databaseConfig.isImportLegacyYaml()
+                && (new File(folder, "Cooldowns.yml").exists() || new File(folder, "OneTimeUseList.yml").exists());
         players.getWorkers().execute(() -> {
-            if (importer != null) {
-                importer.run();
+            if (hasLegacyFiles) {
+                Map<String, UUID> known = new HashMap<>();
+                for (OfflinePlayer offline : Bukkit.getOfflinePlayers()) {
+                    String name = offline.getName();
+                    if (name != null) {
+                        known.put(name.toLowerCase(), offline.getUniqueId());
+                    }
+                }
+                new LegacyImporter(folder, storage, getLogger(), known).run();
             }
             for (UUID uuid : online) {
                 players.markOnline(uuid);
             }
         });
-    }
-
-    private LegacyImporter pendingLegacyImport() {
-        if (!databaseConfig.isImportLegacyYaml()) {
-            return null;
-        }
-        File folder = new File(getDataFolder(), "Cooldowns");
-        if (!new File(folder, "Cooldowns.yml").exists() && !new File(folder, "OneTimeUseList.yml").exists()) {
-            return null;
-        }
-        Map<String, UUID> known = new HashMap<>();
-        for (OfflinePlayer offline : Bukkit.getOfflinePlayers()) {
-            String name = offline.getName();
-            if (name != null) {
-                known.put(name.toLowerCase(), offline.getUniqueId());
-            }
-        }
-        return new LegacyImporter(folder, storage, getLogger(), known);
     }
 
     public void reloadPlugin() {

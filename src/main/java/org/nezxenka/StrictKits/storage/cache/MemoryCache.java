@@ -4,7 +4,6 @@ import org.nezxenka.StrictKits.storage.PlayerRecord;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -73,14 +72,9 @@ public final class MemoryCache implements CacheProvider {
 
     private void evict() {
         long now = System.currentTimeMillis();
-        Iterator<Map.Entry<UUID, Holder>> iterator = entries.entrySet().iterator();
-        int removed = 0;
-        while (iterator.hasNext()) {
-            if (now - iterator.next().getValue().stamp > ttlMillis) {
-                iterator.remove();
-                removed++;
-            }
-        }
+        int before = entries.size();
+        entries.entrySet().removeIf(entry -> now - entry.getValue().stamp > ttlMillis);
+        int removed = before - entries.size();
         if (removed > 0) {
             return;
         }

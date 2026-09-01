@@ -122,6 +122,7 @@ public final class Listeners implements Listener {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private void close(Player player) {
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (player.isOnline()) {

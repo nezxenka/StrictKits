@@ -7,9 +7,7 @@ import org.nezxenka.StrictKits.storage.StorageProvider;
 import org.nezxenka.StrictKits.storage.cache.CacheProvider;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -132,17 +130,16 @@ public final class PlayerDataManager {
 
     private void evictOffline() {
         long threshold = System.currentTimeMillis() - config.getUnloadDelaySeconds() * 1000L;
-        Iterator<Map.Entry<UUID, PlayerData>> iterator = loaded.entrySet().iterator();
-        while (iterator.hasNext()) {
-            PlayerData data = iterator.next().getValue();
+        loaded.entrySet().removeIf(entry -> {
+            PlayerData data = entry.getValue();
             if (data.isOnline() || data.getLastAccess() > threshold) {
-                continue;
+                return false;
             }
             if (data.isDirty()) {
                 flushSingle(data);
             }
-            iterator.remove();
-        }
+            return true;
+        });
     }
 
     private void flushSafely() {
