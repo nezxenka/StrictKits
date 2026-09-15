@@ -3,7 +3,6 @@ version: "${version}"
 main: org.nezxenka.StrictKits.Main
 description: Переписанный GreatKits
 api-version: "${apiVersion}"
-folia-supported: true
 softdepend: [PlaceholderAPI]
 authors:
   - nezxenka

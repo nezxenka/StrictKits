@@ -1,43 +1,30 @@
 package org.nezxenka.StrictKits.kit;
 
-import org.bukkit.Bukkit;
+import lombok.RequiredArgsConstructor;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
 import org.nezxenka.StrictKits.config.Messages;
-import org.nezxenka.StrictKits.config.Settings;
-import org.nezxenka.StrictKits.gui.MenuHolder;
 import org.nezxenka.StrictKits.player.PlayerData;
 import org.nezxenka.StrictKits.player.PlayerDataManager;
-import org.nezxenka.StrictKits.util.GUItems;
 import org.nezxenka.StrictKits.util.Messenger;
 import org.nezxenka.StrictKits.util.TimeFormat;
 
+@RequiredArgsConstructor
 public final class KitService {
-
-    private static final int PREVIEW_SIZE = 54;
-    private static final int PREVIEW_EXIT_SLOT = 49;
 
     private final KitManager kits;
     private final PlayerDataManager players;
     private final Messages messages;
-    private final Settings settings;
-
-    public KitService(KitManager kits, PlayerDataManager players, Messages messages, Settings settings) {
-        this.kits = kits;
-        this.players = players;
-        this.messages = messages;
-        this.settings = settings;
-    }
 
     public long remainingCooldown(PlayerData data, Kit kit) {
         long last = data.getCooldown(kit.getKey());
         if (last == 0L) {
             return 0L;
         }
-        long elapsed = System.currentTimeMillis() - last;
-        long remaining = kit.getCooldownMillis() - elapsed;
-        return remaining > 0L ? remaining : 0L;
+        return Math.max(0L, kit.getCooldownMillis() - (System.currentTimeMillis() - last));
+    }
+
+    public boolean isReady(PlayerData data, Kit kit) {
+        return kit.isOneTimeUse() ? !data.hasClaim(kit.getKey()) : remainingCooldown(data, kit) <= 0L;
     }
 
     public boolean give(Player player, Kit kit) {
@@ -47,48 +34,23 @@ public final class KitService {
             return false;
         }
         boolean admin = player.hasPermission("strictkits.admin");
-        if (!admin) {
-            if (!kit.hasAccess(player)) {
-                Messenger.send(player, messages.getNoPermission());
-                return false;
-            }
-            if (kit.isOneTimeUse() && data.hasClaim(kit.getKey())) {
-                Messenger.send(player, messages.getKitAlreadyClaimed());
-                return false;
-            }
-            if (!kit.isOneTimeUse()) {
-                long remaining = remainingCooldown(data, kit);
-                if (remaining > 0L) {
-                    Messenger.send(player, messages.getCooldown(TimeFormat.getFormattedCooldown(remaining)));
-                    return false;
-                }
-            }
+        if (!admin && !canClaim(player, data, kit)) {
+            return false;
         }
         if (kit.isEmpty()) {
             Messenger.send(player, messages.getKitEmpty());
             return false;
         }
-        kit.applyTo(player);
-        Messenger.send(player, messages.getKitReceived(kit.getName()));
-        if (admin) {
-            return true;
-        }
-        long now = System.currentTimeMillis();
-        if (kit.isOneTimeUse()) {
-            data.addClaim(kit.getKey(), now);
-        } else {
-            data.setCooldown(kit.getKey(), now);
+        giveDirect(player, kit);
+        if (!admin) {
+            markClaimed(data, kit, System.currentTimeMillis());
         }
         return true;
     }
 
     public void giveDirect(Player player, Kit kit) {
-        if (kit.isEmpty()) {
-            Messenger.send(player, messages.getKitEmpty());
-            return;
-        }
         kit.applyTo(player);
-        Messenger.send(player, messages.getKitReceived(kit.getName()));
+        Messenger.send(player, messages.getKitReceived().format(kit.getName()));
     }
 
     public void giveFirstJoinKits(Player player) {
@@ -98,72 +60,39 @@ public final class KitService {
         }
         long now = System.currentTimeMillis();
         for (Kit kit : kits.all()) {
-            if (!kit.isFirstTimeJoinKit() || kit.isEmpty()) {
+            if (!kit.isFirstTimeJoinKit() || kit.isEmpty() || (kit.isOneTimeUse() && data.hasClaim(kit.getKey()))) {
                 continue;
             }
-            if (kit.isOneTimeUse()) {
-                if (data.hasClaim(kit.getKey())) {
-                    continue;
-                }
-                kit.applyTo(player);
-                data.addClaim(kit.getKey(), now);
-            } else {
-                kit.applyTo(player);
-                data.setCooldown(kit.getKey(), now);
-            }
+            kit.applyTo(player);
+            markClaimed(data, kit, now);
         }
     }
 
-    public void preview(Player player, Kit kit) {
-        if (settings.isPreviewRequiresPermission() && !player.hasPermission("strictkits.preview")) {
+    private boolean canClaim(Player player, PlayerData data, Kit kit) {
+        if (!kit.hasAccess(player)) {
             Messenger.send(player, messages.getNoPermission());
-            return;
+            return false;
         }
-        if (kit.isEmpty()) {
-            Messenger.send(player, messages.getKitEmpty());
-            return;
-        }
-        MenuHolder holder = MenuHolder.preview(kit, PREVIEW_EXIT_SLOT);
-        Inventory inventory = Bukkit.createInventory(holder, PREVIEW_SIZE, messages.getGuiPreviewTitle(kit.getName()));
-        holder.setInventory(inventory);
-        ItemStack[] main = kit.getMainContent();
-        int limit = Math.min(main.length, 36);
-        for (int i = 0; i < limit; i++) {
-            if (main[i] != null) {
-                inventory.setItem(i, main[i].clone());
+        if (kit.isOneTimeUse()) {
+            if (data.hasClaim(kit.getKey())) {
+                Messenger.send(player, messages.getKitAlreadyClaimed());
+                return false;
             }
+            return true;
         }
-        ItemStack[] armor = kit.getArmorContent();
-        placeArmor(inventory, armor, 3, 36);
-        placeArmor(inventory, armor, 2, 37);
-        placeArmor(inventory, armor, 1, 38);
-        placeArmor(inventory, armor, 0, 39);
-        if (main.length > 40 && main[40] != null) {
-            inventory.setItem(40, main[40].clone());
+        long remaining = remainingCooldown(data, kit);
+        if (remaining > 0L) {
+            Messenger.send(player, messages.getCooldown().format(TimeFormat.format(remaining)));
+            return false;
         }
-        inventory.setItem(PREVIEW_EXIT_SLOT, GUItems.getExitButton());
-        player.openInventory(inventory);
+        return true;
     }
 
-    private void placeArmor(Inventory inventory, ItemStack[] armor, int index, int slot) {
-        if (index < armor.length && armor[index] != null) {
-            inventory.setItem(slot, armor[index].clone());
+    private static void markClaimed(PlayerData data, Kit kit, long now) {
+        if (kit.isOneTimeUse()) {
+            data.addClaim(kit.getKey(), now);
+        } else {
+            data.setCooldown(kit.getKey(), now);
         }
-    }
-
-    public Messages getMessages() {
-        return messages;
-    }
-
-    public Settings getSettings() {
-        return settings;
-    }
-
-    public KitManager getKits() {
-        return kits;
-    }
-
-    public PlayerDataManager getPlayers() {
-        return players;
     }
 }

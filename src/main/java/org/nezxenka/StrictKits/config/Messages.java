@@ -1,19 +1,19 @@
 package org.nezxenka.StrictKits.config;
 
+import lombok.AccessLevel;
+import lombok.Getter;
 import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.nezxenka.StrictKits.player.PlayerDataManager;
 import org.nezxenka.StrictKits.util.Text;
 
+import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
+@Getter
 public final class Messages {
-
-    private static final String[] NO_LINES = new String[0];
 
     private static final String KIT = ":kit:";
     private static final String PLAYER = ":player:";
@@ -67,7 +67,9 @@ public final class Messages {
     private final String nextButton;
 
     private final String[] adminHelp;
+    @Getter(AccessLevel.NONE)
     private final Message adminUsage;
+    @Getter(AccessLevel.NONE)
     private final Map<String, String> adminSyntax;
     private final String adminKitNotFound;
     private final String adminKitExists;
@@ -85,17 +87,19 @@ public final class Messages {
     private final String adminIconWithoutName;
     private final Message adminIconAlreadyUsed;
     private final Message adminIconUpdated;
+    private final String adminPermissionInvalid;
     private final Message adminPermissionUpdated;
     private final String adminPurgeNothing;
     private final Message adminPurgeStarted;
     private final Message adminReloaded;
     private final String adminVersion;
+    @Getter(AccessLevel.NONE)
     private final Message[] adminStats;
 
     public Messages(FileConfiguration config, String version) {
         String prefix = raw(config, "admin.prefix");
 
-        this.playerHelp = lines(config, "player.help");
+        this.playerHelp = colorLines(config, "player.help");
         this.noAccess = plain(config, "player.no-access");
         this.noKitsOnServer = plain(config, "player.no-kits-on-server");
         this.noPermission = plain(config, "player.no-permission");
@@ -126,8 +130,8 @@ public final class Messages {
         this.previousButton = plain(config, "gui.buttons.previous");
         this.nextButton = plain(config, "gui.buttons.next");
 
-        this.adminHelp = bake(lines(config, "admin.help"), version);
-        this.adminUsage = compile(prefix, raw(config, "admin.usage"), USAGE);
+        this.adminHelp = withVersion(colorLines(config, "admin.help"), version);
+        this.adminUsage = prefixedTemplate(prefix, raw(config, "admin.usage"), USAGE);
         this.adminSyntax = readSyntax(config, adminUsage);
         this.adminKitNotFound = prefixed(config, prefix, "admin.kit-not-found");
         this.adminKitExists = prefixed(config, prefix, "admin.kit-already-exists");
@@ -145,17 +149,33 @@ public final class Messages {
         this.adminIconWithoutName = prefixed(config, prefix, "admin.icon-without-name");
         this.adminIconAlreadyUsed = adminTemplate(config, prefix, "admin.icon-already-used", KIT);
         this.adminIconUpdated = adminTemplate(config, prefix, "admin.icon-updated", KIT);
+        this.adminPermissionInvalid = prefixed(config, prefix, "admin.permission-invalid");
         this.adminPermissionUpdated = adminTemplate(config, prefix, "admin.permission-updated", KIT, PERMISSION);
         this.adminPurgeNothing = prefixed(config, prefix, "admin.purge-nothing-to-do");
         this.adminPurgeStarted = adminTemplate(config, prefix, "admin.purge-started", KIT);
         this.adminReloaded = adminTemplate(config, prefix, "admin.reloaded", KITS);
         this.adminVersion = adminTemplate(config, prefix, "admin.version", VERSION).format(version);
+        this.adminStats = config.getStringList("admin.stats").stream()
+                .map(line -> prefixedTemplate(prefix, line, STORAGE, CACHE, KITS, LOADED, HITS, LOOKUPS, RATIO, WRITES))
+                .toArray(Message[]::new);
+    }
 
-        String[] stats = lines(config, "admin.stats", false);
-        this.adminStats = new Message[stats.length];
-        for (int i = 0; i < stats.length; i++) {
-            this.adminStats[i] = compile(prefix, stats[i], STORAGE, CACHE, KITS, LOADED, HITS, LOOKUPS, RATIO, WRITES);
-        }
+    public String getUsage(String subcommand) {
+        String syntax = adminSyntax.get(subcommand);
+        return syntax != null ? syntax : adminUsage.format("/sk " + subcommand);
+    }
+
+    public String[] formatAdminStats(String storage, String cache, int kits, PlayerDataManager players) {
+        Object[] values = {
+                storage,
+                cache,
+                kits,
+                players.getLoadedCount(),
+                players.getCacheHits(),
+                players.getCacheLookups(),
+                players.getCacheHitRatio(),
+                players.getWrites()};
+        return Arrays.stream(adminStats).map(line -> line.format(values)).toArray(String[]::new);
     }
 
     private static String raw(FileConfiguration config, String path) {
@@ -177,278 +197,39 @@ public final class Messages {
     }
 
     private static Message adminTemplate(FileConfiguration config, String prefix, String path, String... keys) {
-        return compile(prefix, raw(config, path), keys);
+        return prefixedTemplate(prefix, raw(config, path), keys);
     }
 
-    private static Message compile(String prefix, String value, String... keys) {
-        return value.isEmpty() ? Message.compile(value, keys) : Message.compile(prefix + value, keys);
+    private static Message prefixedTemplate(String prefix, String value, String... keys) {
+        return Message.compile(value.isEmpty() ? value : prefix + value, keys);
     }
 
-    private static String[] lines(FileConfiguration config, String path) {
-        return lines(config, path, true);
+    private static String[] colorLines(FileConfiguration config, String path) {
+        return config.getStringList(path).stream().map(Text::color).toArray(String[]::new);
     }
 
-    private static String[] lines(FileConfiguration config, String path, boolean colored) {
-        List<String> raw = config.getStringList(path);
-        if (raw.isEmpty()) {
-            return NO_LINES;
-        }
-        String[] out = new String[raw.size()];
-        for (int i = 0; i < out.length; i++) {
-            String line = raw.get(i);
-            out[i] = colored ? Text.color(line) : line;
-        }
-        return out;
-    }
-
-    private static String[] bake(String[] source, String version) {
-        for (int i = 0; i < source.length; i++) {
-            if (source[i].indexOf(VERSION) >= 0) {
-                source[i] = Message.compile(source[i], VERSION).format(version);
-            }
-        }
-        return source;
+    private static String[] withVersion(String[] lines, String version) {
+        return Arrays.stream(lines)
+                .map(line -> line.contains(VERSION) ? Message.compile(line, VERSION).format(version) : line)
+                .toArray(String[]::new);
     }
 
     private static Map<String, String> readSyntax(FileConfiguration config, Message usage) {
         ConfigurationSection section = config.getConfigurationSection("admin.syntax");
         if (section == null || section.getKeys(false).isEmpty()) {
-            Configuration fallback = config.getDefaults();
-            section = fallback == null ? null : fallback.getConfigurationSection("admin.syntax");
+            Configuration defaults = config.getDefaults();
+            section = defaults == null ? null : defaults.getConfigurationSection("admin.syntax");
         }
+        Map<String, String> syntax = new HashMap<>();
         if (section == null) {
-            return new HashMap<>(0);
+            return syntax;
         }
-        Set<String> keys = section.getKeys(false);
-        Map<String, String> out = new HashMap<>(keys.size() * 2);
-        for (String key : keys) {
-            String syntax = section.getString(key);
-            if (syntax != null && !syntax.isEmpty()) {
-                out.put(key.toLowerCase(), usage.format(Text.color(syntax)));
+        for (String key : section.getKeys(false)) {
+            String value = section.getString(key);
+            if (value != null && !value.isEmpty()) {
+                syntax.put(key.toLowerCase(), usage.format(Text.color(value)));
             }
         }
-        return out;
-    }
-
-    public String[] getPlayerHelp() {
-        return playerHelp;
-    }
-
-    public String getNoAccess() {
-        return noAccess;
-    }
-
-    public String getNoKitsOnServer() {
-        return noKitsOnServer;
-    }
-
-    public String getNoPermission() {
-        return noPermission;
-    }
-
-    public String getPlayersOnly() {
-        return playersOnly;
-    }
-
-    public String getPlayerOffline() {
-        return playerOffline;
-    }
-
-    public String getDataNotLoaded() {
-        return dataNotLoaded;
-    }
-
-    public String getThrottled() {
-        return throttled;
-    }
-
-    public String getKitNotFound() {
-        return kitNotFound;
-    }
-
-    public String getKitEmpty() {
-        return kitEmpty;
-    }
-
-    public String getKitAlreadyClaimed() {
-        return kitAlreadyClaimed;
-    }
-
-    public String getPreviewUsage() {
-        return previewUsage;
-    }
-
-    public String getKitReceived(String kit) {
-        return kitReceived.format(kit);
-    }
-
-    public String getCooldown(String formatted) {
-        return cooldown.format(formatted);
-    }
-
-    public String getListPrefix() {
-        return listPrefix;
-    }
-
-    public String getListSeparator() {
-        return listSeparator;
-    }
-
-    public String getListEntry(String kit) {
-        return listEntry.format(kit);
-    }
-
-    public String getListEntry(String kit, boolean ready) {
-        return ready ? listEntryReady.format(kit) : listEntryCooldown.format(kit);
-    }
-
-    public String getGuiTitle(int page, int pages) {
-        return guiTitle.format(Integer.toString(page), Integer.toString(pages));
-    }
-
-    public String getGuiPreviewTitle(String kit) {
-        return guiPreviewTitle.format(kit);
-    }
-
-    public String getLoreAvailable() {
-        return loreAvailable;
-    }
-
-    public String getLoreCooldown(String formatted) {
-        return loreCooldown.format(formatted);
-    }
-
-    public String getLoreClaimed() {
-        return loreClaimed;
-    }
-
-    public String getDefaultIconName(String kit) {
-        return defaultIconName.format(kit);
-    }
-
-    public String getLoreNoPermission() {
-        return loreNoPermission;
-    }
-
-    public String getExitButton() {
-        return exitButton;
-    }
-
-    public String getPreviousButton() {
-        return previousButton;
-    }
-
-    public String getNextButton() {
-        return nextButton;
-    }
-
-    public String[] getAdminHelp() {
-        return adminHelp;
-    }
-
-    public String getUsage(String subcommand) {
-        String cached = adminSyntax.get(subcommand);
-        return cached != null ? cached : adminUsage.format("/sk " + subcommand);
-    }
-
-    public String getAdminKitNotFound() {
-        return adminKitNotFound;
-    }
-
-    public String getAdminKitExists() {
-        return adminKitExists;
-    }
-
-    public String getAdminKitNameInvalid() {
-        return adminKitNameInvalid;
-    }
-
-    public String getAdminKitCreated(String kit) {
-        return adminKitCreated.format(kit);
-    }
-
-    public String getAdminKitRemoved(String kit) {
-        return adminKitRemoved.format(kit);
-    }
-
-    public String getAdminKitGiven(String kit, String player) {
-        return adminKitGiven.format(kit, player);
-    }
-
-    public String getAdminInventoryUpdated(String kit) {
-        return adminInventoryUpdated.format(kit);
-    }
-
-    public String getAdminCooldownNotANumber() {
-        return adminCooldownNotANumber;
-    }
-
-    public String getAdminCooldownNegative() {
-        return adminCooldownNegative;
-    }
-
-    public String getAdminCooldownTooLarge(long seconds) {
-        return adminCooldownTooLarge.format(Long.toString(seconds));
-    }
-
-    public String getAdminCooldownUpdated(String kit, long seconds) {
-        return adminCooldownUpdated.format(kit, Long.toString(seconds));
-    }
-
-    public String getAdminFlagUpdated(String flag, String kit, boolean value) {
-        return adminFlagUpdated.format(flag, kit, Boolean.toString(value));
-    }
-
-    public String getAdminIconHandEmpty() {
-        return adminIconHandEmpty;
-    }
-
-    public String getAdminIconWithoutName() {
-        return adminIconWithoutName;
-    }
-
-    public String getAdminIconAlreadyUsed(String kit) {
-        return adminIconAlreadyUsed.format(kit);
-    }
-
-    public String getAdminIconUpdated(String kit) {
-        return adminIconUpdated.format(kit);
-    }
-
-    public String getAdminPermissionUpdated(String kit, String permission) {
-        return adminPermissionUpdated.format(kit, permission);
-    }
-
-    public String getAdminPurgeNothing() {
-        return adminPurgeNothing;
-    }
-
-    public String getAdminPurgeStarted(String kit) {
-        return adminPurgeStarted.format(kit);
-    }
-
-    public String getAdminReloaded(int kits) {
-        return adminReloaded.format(Integer.toString(kits));
-    }
-
-    public String getAdminVersion() {
-        return adminVersion;
-    }
-
-    public String[] getAdminStats(String storage, String cache, int kits, PlayerDataManager players) {
-        String[] values = {
-                storage,
-                cache,
-                Integer.toString(kits),
-                Integer.toString(players.getLoadedCount()),
-                Long.toString(players.getCacheHits()),
-                Long.toString(players.getCacheLookups()),
-                Long.toString(players.getCacheHitRatio()),
-                Long.toString(players.getWrites())};
-        String[] out = new String[adminStats.length];
-        for (int i = 0; i < out.length; i++) {
-            out[i] = adminStats[i].format(values);
-        }
-        return out;
+        return syntax;
     }
 }

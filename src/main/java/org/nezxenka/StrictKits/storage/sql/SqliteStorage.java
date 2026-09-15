@@ -4,32 +4,34 @@ import com.zaxxer.hikari.HikariConfig;
 import org.nezxenka.StrictKits.storage.DatabaseConfig;
 
 import java.io.File;
-import java.util.ArrayList;
+import java.io.IOException;
 import java.util.List;
 import java.util.logging.Logger;
 
 public final class SqliteStorage extends SqlStorage {
 
+    private static final String DEFAULT_FILE = "data.db";
+
     private final File file;
 
     public SqliteStorage(DatabaseConfig config, Logger logger, File dataFolder) {
         super(config, logger);
-        File requested = new File(dataFolder, config.getSqliteFile());
-        File resolved;
+        this.file = resolveFile(dataFolder, config.getSqliteFile(), logger);
+    }
+
+    private static File resolveFile(File dataFolder, String path, Logger logger) {
+        File requested = new File(dataFolder, path);
         try {
-            String canonicalData = dataFolder.getCanonicalPath();
-            String canonicalFile = requested.getCanonicalPath();
-            if (!canonicalFile.startsWith(canonicalData + File.separator) && !canonicalFile.equals(canonicalData)) {
-                logger.warning("Путь к SQLite вне папки плагина заблокирован: " + config.getSqliteFile() + " -> используется data.db");
-                resolved = new File(dataFolder, "data.db");
-            } else {
-                resolved = requested;
+            String folder = dataFolder.getCanonicalPath();
+            String target = requested.getCanonicalPath();
+            if (target.startsWith(folder + File.separator)) {
+                return requested;
             }
-        } catch (java.io.IOException e) {
-            logger.warning("Не удалось проверить путь к БД: " + e.getMessage() + " -> используется data.db");
-            resolved = new File(dataFolder, "data.db");
+            logger.warning("Путь к SQLite вне папки плагина заблокирован: " + path + " -> используется " + DEFAULT_FILE);
+        } catch (IOException e) {
+            logger.warning("Не удалось проверить путь к БД: " + e.getMessage() + " -> используется " + DEFAULT_FILE);
         }
-        this.file = resolved;
+        return new File(dataFolder, DEFAULT_FILE);
     }
 
     @Override
@@ -43,10 +45,6 @@ public final class SqliteStorage extends SqlStorage {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             logger.warning("Не удалось создать папку для базы " + parent.getPath());
         }
-        try {
-            Class.forName("org.sqlite.JDBC");
-        } catch (ClassNotFoundException ignored) {
-        }
         hikari.setDriverClassName("org.sqlite.JDBC");
         hikari.setJdbcUrl("jdbc:sqlite:" + file.getAbsolutePath());
         hikari.setMaximumPoolSize(1);
@@ -54,20 +52,6 @@ public final class SqliteStorage extends SqlStorage {
         hikari.setMaxLifetime(0L);
         hikari.setKeepaliveTime(0L);
         hikari.setConnectionInitSql("PRAGMA synchronous=" + pragma(config.getSqliteSynchronous(), "NORMAL"));
-    }
-
-    private static String pragma(String raw, String fallback) {
-        if (raw == null) {
-            return fallback;
-        }
-        StringBuilder builder = new StringBuilder(raw.length());
-        for (int i = 0; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_') {
-                builder.append(c);
-            }
-        }
-        return builder.length() == 0 ? fallback : builder.toString();
     }
 
     @Override
@@ -82,20 +66,28 @@ public final class SqliteStorage extends SqlStorage {
 
     @Override
     protected List<String> schemaStatements() {
-        List<String> statements = new ArrayList<>(5);
-        statements.add("PRAGMA journal_mode=" + pragma(config.getSqliteJournalMode(), "WAL"));
-        statements.add("CREATE TABLE IF NOT EXISTS " + cooldownTable + " ("
+        return List.of(
+                "PRAGMA journal_mode=" + pragma(config.getSqliteJournalMode(), "WAL"),
+                table(cooldownTable, "used_at"),
+                table(claimTable, "claimed_at"),
+                index(cooldownTable),
+                index(claimTable));
+    }
+
+    private static String table(String table, String timeColumn) {
+        return "CREATE TABLE IF NOT EXISTS " + table + " ("
                 + "uuid TEXT NOT NULL, "
                 + "kit TEXT NOT NULL, "
-                + "used_at INTEGER NOT NULL, "
-                + "PRIMARY KEY (uuid, kit))");
-        statements.add("CREATE TABLE IF NOT EXISTS " + claimTable + " ("
-                + "uuid TEXT NOT NULL, "
-                + "kit TEXT NOT NULL, "
-                + "claimed_at INTEGER NOT NULL, "
-                + "PRIMARY KEY (uuid, kit))");
-        statements.add("CREATE INDEX IF NOT EXISTS idx_" + cooldownTable + "_kit ON " + cooldownTable + " (kit)");
-        statements.add("CREATE INDEX IF NOT EXISTS idx_" + claimTable + "_kit ON " + claimTable + " (kit)");
-        return statements;
+                + timeColumn + " INTEGER NOT NULL, "
+                + "PRIMARY KEY (uuid, kit))";
+    }
+
+    private static String index(String table) {
+        return "CREATE INDEX IF NOT EXISTS idx_" + table + "_kit ON " + table + " (kit)";
+    }
+
+    private static String pragma(String raw, String fallback) {
+        String value = raw == null ? "" : raw.replaceAll("[^A-Za-z_]", "");
+        return value.isEmpty() ? fallback : value;
     }
 }

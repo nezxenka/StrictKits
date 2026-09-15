@@ -1,11 +1,14 @@
 package org.nezxenka.StrictKits.storage;
 
+import lombok.Getter;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+@Getter
 public final class DatabaseConfig {
 
     public enum StorageType {
@@ -17,6 +20,8 @@ public final class DatabaseConfig {
         MEMORY,
         REDIS
     }
+
+    private static final String DEFAULT_TABLE_PREFIX = "strictkits_";
 
     private final StorageType storageType;
     private final String tablePrefix;
@@ -41,7 +46,7 @@ public final class DatabaseConfig {
     private final long poolLeakDetectionThreshold;
 
     private final CacheType cacheType;
-    private final int memoryEntryTtlSeconds;
+    private final long memoryEntryTtlMillis;
     private final String redisHost;
     private final int redisPort;
     private final String redisUsername;
@@ -66,8 +71,8 @@ public final class DatabaseConfig {
     private final boolean importLegacyYaml;
 
     public DatabaseConfig(FileConfiguration config) {
-        this.storageType = parseStorage(config.getString("storage.type", "SQLITE"));
-        this.tablePrefix = sanitize(config.getString("storage.table-prefix", "strictkits_"));
+        this.storageType = parseEnum(StorageType.class, config.getString("storage.type"), StorageType.SQLITE);
+        this.tablePrefix = sanitizeTablePrefix(config.getString("storage.table-prefix", DEFAULT_TABLE_PREFIX));
 
         this.sqliteFile = config.getString("storage.sqlite.file", "data.db");
         this.sqliteJournalMode = config.getString("storage.sqlite.journal-mode", "WAL");
@@ -88,8 +93,8 @@ public final class DatabaseConfig {
         this.poolKeepaliveTime = config.getLong("storage.mysql.pool.keepalive-time", 0L);
         this.poolLeakDetectionThreshold = config.getLong("storage.mysql.pool.leak-detection-threshold", 0L);
 
-        this.cacheType = parseCache(config.getString("cache.type", "MEMORY"));
-        this.memoryEntryTtlSeconds = Math.max(1, config.getInt("cache.memory.entry-ttl-seconds", 300));
+        this.cacheType = parseEnum(CacheType.class, config.getString("cache.type"), CacheType.MEMORY);
+        this.memoryEntryTtlMillis = Math.max(1, config.getInt("cache.memory.entry-ttl-seconds", 300)) * 1000L;
         this.redisHost = config.getString("cache.redis.host", "127.0.0.1");
         this.redisPort = config.getInt("cache.redis.port", 6379);
         this.redisUsername = config.getString("cache.redis.username", "");
@@ -114,209 +119,29 @@ public final class DatabaseConfig {
         this.importLegacyYaml = config.getBoolean("migration.import-legacy-yaml", true);
     }
 
-    private static StorageType parseStorage(String raw) {
+    private static <E extends Enum<E>> E parseEnum(Class<E> type, String raw, E fallback) {
+        if (raw == null) {
+            return fallback;
+        }
         try {
-            return StorageType.valueOf(raw.trim().toUpperCase());
+            return Enum.valueOf(type, raw.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            return StorageType.SQLITE;
+            return fallback;
         }
     }
 
-    private static CacheType parseCache(String raw) {
-        try {
-            return CacheType.valueOf(raw.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return CacheType.MEMORY;
-        }
-    }
-
-    private static String sanitize(String prefix) {
-        StringBuilder builder = new StringBuilder(prefix.length());
-        for (int i = 0; i < prefix.length(); i++) {
-            char c = prefix.charAt(i);
-            if (Character.isLetterOrDigit(c) || c == '_') {
-                builder.append(c);
-            }
-        }
-        return builder.length() == 0 ? "strictkits_" : builder.toString();
+    private static String sanitizeTablePrefix(String prefix) {
+        String sanitized = prefix.replaceAll("[^\\p{L}\\p{Nd}_]", "");
+        return sanitized.isEmpty() ? DEFAULT_TABLE_PREFIX : sanitized;
     }
 
     private static Map<String, String> readProperties(ConfigurationSection section) {
-        Map<String, String> map = new LinkedHashMap<>();
-        if (section == null) {
-            return map;
+        Map<String, String> properties = new LinkedHashMap<>();
+        if (section != null) {
+            for (String key : section.getKeys(false)) {
+                properties.put(key, String.valueOf(section.get(key)));
+            }
         }
-        for (String key : section.getKeys(false)) {
-            map.put(key, String.valueOf(section.get(key)));
-        }
-        return map;
-    }
-
-    public StorageType getStorageType() {
-        return storageType;
-    }
-
-    public String getTablePrefix() {
-        return tablePrefix;
-    }
-
-    public String getSqliteFile() {
-        return sqliteFile;
-    }
-
-    public String getSqliteJournalMode() {
-        return sqliteJournalMode;
-    }
-
-    public String getSqliteSynchronous() {
-        return sqliteSynchronous;
-    }
-
-    public String getMysqlHost() {
-        return mysqlHost;
-    }
-
-    public int getMysqlPort() {
-        return mysqlPort;
-    }
-
-    public String getMysqlDatabase() {
-        return mysqlDatabase;
-    }
-
-    public String getMysqlUsername() {
-        return mysqlUsername;
-    }
-
-    public String getMysqlPassword() {
-        return mysqlPassword;
-    }
-
-    public boolean isMysqlUseSsl() {
-        return mysqlUseSsl;
-    }
-
-    public Map<String, String> getMysqlProperties() {
-        return mysqlProperties;
-    }
-
-    public int getPoolMaximumSize() {
-        return poolMaximumSize;
-    }
-
-    public int getPoolMinimumIdle() {
-        return poolMinimumIdle;
-    }
-
-    public long getPoolConnectionTimeout() {
-        return poolConnectionTimeout;
-    }
-
-    public long getPoolIdleTimeout() {
-        return poolIdleTimeout;
-    }
-
-    public long getPoolMaxLifetime() {
-        return poolMaxLifetime;
-    }
-
-    public long getPoolKeepaliveTime() {
-        return poolKeepaliveTime;
-    }
-
-    public long getPoolLeakDetectionThreshold() {
-        return poolLeakDetectionThreshold;
-    }
-
-    public long getMemoryEntryTtlMillis() {
-        return memoryEntryTtlSeconds * 1000L;
-    }
-
-    public CacheType getCacheType() {
-        return cacheType;
-    }
-
-    public String getRedisHost() {
-        return redisHost;
-    }
-
-    public int getRedisPort() {
-        return redisPort;
-    }
-
-    public String getRedisUsername() {
-        return redisUsername;
-    }
-
-    public String getRedisPassword() {
-        return redisPassword;
-    }
-
-    public int getRedisDatabase() {
-        return redisDatabase;
-    }
-
-    public boolean isRedisSsl() {
-        return redisSsl;
-    }
-
-    public int getRedisTimeout() {
-        return redisTimeout;
-    }
-
-    public String getRedisKeyPrefix() {
-        return redisKeyPrefix;
-    }
-
-    public int getRedisEntryTtlSeconds() {
-        return redisEntryTtlSeconds;
-    }
-
-    public String getRedisChannel() {
-        return redisChannel;
-    }
-
-    public int getRedisMaxTotal() {
-        return redisMaxTotal;
-    }
-
-    public int getRedisMaxIdle() {
-        return redisMaxIdle;
-    }
-
-    public int getRedisMinIdle() {
-        return redisMinIdle;
-    }
-
-    public long getRedisMaxWaitMillis() {
-        return redisMaxWaitMillis;
-    }
-
-    public int getFlushIntervalSeconds() {
-        return flushIntervalSeconds;
-    }
-
-    public int getBatchSize() {
-        return batchSize;
-    }
-
-    public boolean isSaveOnQuit() {
-        return saveOnQuit;
-    }
-
-    public int getUnloadDelaySeconds() {
-        return unloadDelaySeconds;
-    }
-
-    public long getLoadTimeoutMillis() {
-        return loadTimeoutMillis;
-    }
-
-    public int getWorkerThreads() {
-        return workerThreads;
-    }
-
-    public boolean isImportLegacyYaml() {
-        return importLegacyYaml;
+        return Collections.unmodifiableMap(properties);
     }
 }

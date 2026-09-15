@@ -1,14 +1,17 @@
 package org.nezxenka.StrictKits;
 
+import lombok.AccessLevel;
+import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.command.PluginCommand;
+import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import org.nezxenka.StrictKits.commands.AdminCommands;
@@ -17,6 +20,7 @@ import org.nezxenka.StrictKits.config.Messages;
 import org.nezxenka.StrictKits.config.Settings;
 import org.nezxenka.StrictKits.gui.KitMenu;
 import org.nezxenka.StrictKits.gui.MenuHolder;
+import org.nezxenka.StrictKits.gui.MenuItems;
 import org.nezxenka.StrictKits.kit.Kit;
 import org.nezxenka.StrictKits.kit.KitManager;
 import org.nezxenka.StrictKits.kit.KitService;
@@ -31,25 +35,31 @@ import org.nezxenka.StrictKits.storage.cache.MemoryCache;
 import org.nezxenka.StrictKits.storage.cache.RedisCache;
 import org.nezxenka.StrictKits.storage.sql.MySqlStorage;
 import org.nezxenka.StrictKits.storage.sql.SqliteStorage;
-import org.nezxenka.StrictKits.util.GUItems;
 import org.nezxenka.StrictKits.util.Messenger;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.io.Reader;
+import java.io.UncheckedIOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
 
+@Getter
 public final class Main extends JavaPlugin {
+
+    private static final String DATABASE_FILE = "database.yml";
+    private static final String MESSAGES_FILE = "messages.yml";
 
     private Settings settings;
     private Messages messages;
+    @Getter(AccessLevel.NONE)
+    private MenuItems menuItems;
+    @Getter(AccessLevel.NONE)
     private DatabaseConfig databaseConfig;
     private StorageProvider storage;
     private CacheProvider cache;
@@ -57,48 +67,47 @@ public final class Main extends JavaPlugin {
     private KitManager kits;
     private KitService kitService;
     private KitMenu kitMenu;
+    @Getter(AccessLevel.NONE)
     private BukkitTask menuRefreshTask;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        saveResourceIfMissing("database.yml");
+        saveResourceIfMissing(DATABASE_FILE);
 
         loadConfiguration();
-        this.databaseConfig = new DatabaseConfig(readYaml("database.yml"));
-        Messenger.detect();
+        databaseConfig = new DatabaseConfig(loadYaml(DATABASE_FILE, false));
 
         if (!setupStorage()) {
             getLogger().severe("Хранилище не инициализировано, плагин отключается");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        setupCache();
 
-        this.players = new PlayerDataManager(storage, cache, databaseConfig, getLogger());
-        this.players.start();
+        players = new PlayerDataManager(storage, cache, databaseConfig, getLogger());
+        players.start();
 
-        this.kits = new KitManager(new KitStorage(new File(getDataFolder(), "Kits"), getLogger()));
-        int loaded = kits.loadAll();
+        kits = new KitManager(new KitStorage(new File(getDataFolder(), "Kits"), getLogger()));
+        kits.loadAll();
         warnAboutMissingIcons();
 
         buildServices();
         startMenuRefresh();
 
-        registerCommands();
+        bindCommand("strictkits", new AdminCommands(this));
+        bindCommand("kit", new PlayerCommands(this));
         getServer().getPluginManager().registerEvents(new Listeners(this), this);
 
         runStartupTasks();
 
         getLogger().info("StrictKits " + getDescription().getVersion() + " включен");
-        getLogger().info("Хранилище: " + storage.name() + ", кэш: " + cache.name() + ", китов: " + loaded);
+        getLogger().info("Хранилище: " + storage.name() + ", кэш: " + cache.name() + ", китов: " + kits.size());
     }
 
     @Override
     public void onDisable() {
-        if (menuRefreshTask != null) {
-            menuRefreshTask.cancel();
-            menuRefreshTask = null;
-        }
+        cancelMenuRefresh();
         if (kits != null) {
             kits.flushAllBlocking();
             kits.shutdown();
@@ -115,51 +124,50 @@ public final class Main extends JavaPlugin {
         getLogger().info("StrictKits выключен");
     }
 
+    public void reloadPlugin() {
+        closeOpenMenus();
+        reloadConfig();
+        loadConfiguration();
+        kits.flushAllBlocking();
+        kits.loadAll();
+        warnAboutMissingIcons();
+        buildServices();
+        startMenuRefresh();
+    }
+
     private void loadConfiguration() {
+        saveResourceIfMissing(MESSAGES_FILE);
         FileConfiguration config = getConfig();
-        this.settings = new Settings(config);
-        this.messages = new Messages(loadMessages(), getDescription().getVersion());
-        GUItems.load(config, messages);
+        settings = new Settings(config);
+        messages = new Messages(loadYaml(MESSAGES_FILE, true), getDescription().getVersion());
+        menuItems = new MenuItems(config, messages);
+        Messenger.detect();
     }
 
     private void buildServices() {
-        this.kitService = new KitService(kits, players, messages, settings);
-        this.kitMenu = new KitMenu(kits, kitService, players, messages, settings);
+        kitService = new KitService(kits, players, messages);
+        kitMenu = new KitMenu(kits, kitService, players, messages, settings, menuItems);
     }
 
-    private FileConfiguration loadMessages() {
-        saveResourceIfMissing("messages.yml");
-        File file = new File(getDataFolder(), "messages.yml");
+    private YamlConfiguration loadYaml(String name, boolean completeMissingKeys) {
+        File file = new File(getDataFolder(), name);
         YamlConfiguration config = new YamlConfiguration();
-        boolean readable = readInto(config, file, "messages.yml");
-        Configuration defaults = jarDefaults("messages.yml");
-        if (defaults != null) {
-            config.setDefaults(defaults);
-        }
-        if (!readable || defaults == null || !hasMissingKeys(config, defaults)) {
-            return config;
-        }
-        config.options().copyDefaults(true);
-        try {
-            config.save(file);
-            getLogger().info("messages.yml дополнен новыми ключами, комментарии в нём не сохраняются");
-        } catch (IOException e) {
-            getLogger().log(Level.WARNING, "Не удалось обновить messages.yml", e);
-        }
-        return config;
-    }
-
-    private YamlConfiguration readYaml(String name) {
-        YamlConfiguration config = new YamlConfiguration();
-        readInto(config, new File(getDataFolder(), name), name);
+        boolean readable = readInto(config, file);
         Configuration defaults = jarDefaults(name);
-        if (defaults != null) {
-            config.setDefaults(defaults);
+        config.setDefaults(defaults);
+        if (completeMissingKeys && readable && hasMissingKeys(config, defaults)) {
+            config.options().copyDefaults(true);
+            try {
+                config.save(file);
+                getLogger().info(name + " дополнен новыми ключами, комментарии в нём не сохраняются");
+            } catch (IOException e) {
+                getLogger().log(Level.WARNING, "Не удалось обновить " + name, e);
+            }
         }
         return config;
     }
 
-    private boolean readInto(YamlConfiguration config, File file, String name) {
+    private boolean readInto(YamlConfiguration config, File file) {
         if (!file.exists()) {
             return true;
         }
@@ -167,29 +175,24 @@ public final class Main extends JavaPlugin {
             config.load(file);
             return true;
         } catch (IOException e) {
-            getLogger().log(Level.SEVERE, "Не удалось прочитать " + name + ", применяются значения по умолчанию", e);
+            getLogger().log(Level.SEVERE, "Не удалось прочитать " + file.getName() + ", применяются значения по умолчанию", e);
         } catch (InvalidConfigurationException e) {
-            getLogger().severe("Синтаксическая ошибка в " + name + ", применяются значения по умолчанию");
+            getLogger().severe("Синтаксическая ошибка в " + file.getName() + ", применяются значения по умолчанию");
             getLogger().severe(e.getMessage());
         }
         return false;
     }
 
     private Configuration jarDefaults(String name) {
-        InputStream resource = getResource(name);
-        if (resource == null) {
-            return null;
+        try (Reader reader = Objects.requireNonNull(getTextResource(name), name)) {
+            return YamlConfiguration.loadConfiguration(reader);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
-        return YamlConfiguration.loadConfiguration(new InputStreamReader(resource, StandardCharsets.UTF_8));
     }
 
     private static boolean hasMissingKeys(YamlConfiguration config, Configuration defaults) {
-        for (String key : defaults.getKeys(true)) {
-            if (!config.contains(key, true)) {
-                return true;
-            }
-        }
-        return false;
+        return defaults.getKeys(true).stream().anyMatch(key -> !config.contains(key, true));
     }
 
     private void saveResourceIfMissing(String name) {
@@ -199,117 +202,75 @@ public final class Main extends JavaPlugin {
     }
 
     private void warnAboutMissingIcons() {
-        List<String> missing = new ArrayList<>();
-        for (Kit kit : kits.all()) {
-            if (kit.getIcon() == null) {
-                missing.add(kit.getName());
-            }
-        }
+        String missing = kits.all().stream()
+                .filter(kit -> kit.getIcon() == null)
+                .map(Kit::getName)
+                .collect(Collectors.joining(", "));
         if (!missing.isEmpty()) {
-            getLogger().warning("Без иконки (используется стандартная, задайте через /sk seticon): "
-                    + String.join(", ", missing));
+            getLogger().warning("Без иконки (используется стандартная, задайте через /sk seticon): " + missing);
         }
     }
 
     private boolean setupStorage() {
+        storage = databaseConfig.getStorageType() == DatabaseConfig.StorageType.MYSQL
+                ? new MySqlStorage(databaseConfig, getLogger())
+                : new SqliteStorage(databaseConfig, getLogger(), getDataFolder());
         try {
-            this.storage = databaseConfig.getStorageType() == DatabaseConfig.StorageType.MYSQL
-                    ? new MySqlStorage(databaseConfig, getLogger())
-                    : new SqliteStorage(databaseConfig, getLogger(), getDataFolder());
             storage.initialize();
+            return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Не удалось подключиться к " + databaseConfig.getStorageType(), e);
             return false;
         }
+    }
 
+    private void setupCache() {
         if (databaseConfig.getCacheType() == DatabaseConfig.CacheType.REDIS) {
             RedisCache redis = new RedisCache(databaseConfig, getLogger());
             try {
                 redis.initialize();
-                this.cache = redis;
-                return true;
+                cache = redis;
+                return;
             } catch (Exception e) {
                 redis.shutdown();
                 getLogger().log(Level.SEVERE, "Redis недоступен, используется локальный кэш", e);
             }
         }
-
-        MemoryCache memory = new MemoryCache(databaseConfig.getMemoryEntryTtlMillis());
-        memory.initialize();
-        this.cache = memory;
-        return true;
+        cache = new MemoryCache(databaseConfig.getMemoryEntryTtlMillis());
     }
 
-    private void registerCommands() {
-        AdminCommands admin = new AdminCommands(this);
-        PlayerCommands player = new PlayerCommands(this);
-        if (getCommand("strictkits") != null) {
-            getCommand("strictkits").setExecutor(admin);
-            getCommand("strictkits").setTabCompleter(admin);
+    private void bindCommand(String name, TabExecutor executor) {
+        PluginCommand command = getCommand(name);
+        if (command == null) {
+            getLogger().severe("Команда " + name + " не объявлена в plugin.yml");
+            return;
         }
-        if (getCommand("kit") != null) {
-            getCommand("kit").setExecutor(player);
-            getCommand("kit").setTabCompleter(player);
-        }
+        command.setExecutor(executor);
+        command.setTabCompleter(executor);
     }
 
     private void startMenuRefresh() {
+        cancelMenuRefresh();
+        int ticks = settings.getGuiRefreshTicks();
+        if (ticks > 0) {
+            menuRefreshTask = Bukkit.getScheduler().runTaskTimer(this, this::refreshOpenMenus, ticks, ticks);
+        }
+    }
+
+    private void cancelMenuRefresh() {
         if (menuRefreshTask != null) {
             menuRefreshTask.cancel();
             menuRefreshTask = null;
         }
-        int ticks = settings.getGuiRefreshTicks();
-        if (ticks <= 0) {
-            return;
-        }
-        menuRefreshTask = Bukkit.getScheduler().runTaskTimer(this, this::refreshOpenMenus, ticks, ticks);
     }
 
     private void refreshOpenMenus() {
         for (Player online : Bukkit.getOnlinePlayers()) {
             Inventory top = online.getOpenInventory().getTopInventory();
-            InventoryHolder holder = top.getHolder();
-            if (holder instanceof MenuHolder) {
-                kitMenu.refresh(online, (MenuHolder) holder, top);
+            if (top.getHolder() instanceof MenuHolder holder) {
+                kitMenu.refresh(online, holder, top);
             }
         }
-    }
-
-    private void runStartupTasks() {
-        List<UUID> online = new ArrayList<>();
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            online.add(player.getUniqueId());
-        }
-        File folder = new File(getDataFolder(), "Cooldowns");
-        boolean hasLegacyFiles = databaseConfig.isImportLegacyYaml()
-                && (new File(folder, "Cooldowns.yml").exists() || new File(folder, "OneTimeUseList.yml").exists());
-        players.getWorkers().execute(() -> {
-            if (hasLegacyFiles) {
-                Map<String, UUID> known = new HashMap<>();
-                for (OfflinePlayer offline : Bukkit.getOfflinePlayers()) {
-                    String name = offline.getName();
-                    if (name != null) {
-                        known.put(name.toLowerCase(), offline.getUniqueId());
-                    }
-                }
-                new LegacyImporter(folder, storage, getLogger(), known).run();
-            }
-            for (UUID uuid : online) {
-                players.markOnline(uuid);
-            }
-        });
-    }
-
-    public void reloadPlugin() {
-        closeOpenMenus();
-        reloadConfig();
-        loadConfiguration();
-        Messenger.detect();
-        kits.flushAllBlocking();
-        kits.loadAll();
-        warnAboutMissingIcons();
-        buildServices();
-        startMenuRefresh();
     }
 
     private void closeOpenMenus() {
@@ -320,35 +281,26 @@ public final class Main extends JavaPlugin {
         }
     }
 
-    public Settings getSettings() {
-        return settings;
+    private void runStartupTasks() {
+        List<UUID> online = Bukkit.getOnlinePlayers().stream().map(Player::getUniqueId).toList();
+        File legacyFolder = new File(getDataFolder(), "Cooldowns");
+        boolean importLegacy = databaseConfig.isImportLegacyYaml() && LegacyImporter.hasLegacyData(legacyFolder);
+        players.getWorkers().execute(() -> {
+            if (importLegacy) {
+                new LegacyImporter(legacyFolder, storage, getLogger(), knownPlayerNames()).run();
+            }
+            online.forEach(players::markOnline);
+        });
     }
 
-    public Messages getMessages() {
-        return messages;
-    }
-
-    public KitManager getKits() {
-        return kits;
-    }
-
-    public KitService getKitService() {
-        return kitService;
-    }
-
-    public KitMenu getKitMenu() {
-        return kitMenu;
-    }
-
-    public PlayerDataManager getPlayers() {
-        return players;
-    }
-
-    public String getStorageName() {
-        return storage == null ? "none" : storage.name();
-    }
-
-    public String getCacheName() {
-        return cache == null ? "none" : cache.name();
+    private static Map<String, UUID> knownPlayerNames() {
+        Map<String, UUID> known = new HashMap<>();
+        for (OfflinePlayer offline : Bukkit.getOfflinePlayers()) {
+            String name = offline.getName();
+            if (name != null) {
+                known.put(name.toLowerCase(), offline.getUniqueId());
+            }
+        }
+        return known;
     }
 }

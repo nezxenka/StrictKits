@@ -3,18 +3,19 @@ plugins {
     id 'com.gradleup.shadow' version '8.3.6'
 }
 
-def isLegacy = findProperty("legacy") != null
+def isLegacy = findProperty('legacy') != null
+def apiVersion = isLegacy ? '1.16' : '1.21'
+def javaRelease = isLegacy ? 16 : 21
+def paperApi = isLegacy
+        ? 'com.destroystokyo.paper:paper-api:1.16.5-R0.1-SNAPSHOT'
+        : 'io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT'
 
 group = 'org.nezxenka'
-version = '2.2'
-
-ext.apiVersion = isLegacy ? '1.16' : '1.21'
-ext.javaRelease = isLegacy ? 16 : 21
-ext.paperApi = isLegacy ? 'com.destroystokyo.paper:paper-api:1.16.5-R0.1-SNAPSHOT' : 'io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT'
+version = '2.3'
 
 java {
-    sourceCompatibility = isLegacy ? JavaVersion.VERSION_16 : JavaVersion.VERSION_21
-    targetCompatibility = isLegacy ? JavaVersion.VERSION_16 : JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.toVersion(javaRelease)
+    targetCompatibility = JavaVersion.toVersion(javaRelease)
 }
 
 repositories {
@@ -31,6 +32,9 @@ configurations {
 dependencies {
     compileOnly paperApi
     compileOnly 'me.clip:placeholderapi:2.11.6'
+
+    compileOnly 'org.projectlombok:lombok:1.18.48'
+    annotationProcessor 'org.projectlombok:lombok:1.18.48'
 
     shaded 'com.zaxxer:HikariCP:6.2.1'
     shaded 'org.xerial:sqlite-jdbc:3.49.1.0'
@@ -51,16 +55,16 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 processResources {
-    inputs.property("apiVersion", apiVersion)
+    def tokens = [version: version, apiVersion: apiVersion]
+    inputs.properties(tokens)
     filteringCharset = 'UTF-8'
-    filesMatching('plugin.yml') {
-        expand(project.properties + [apiVersion: apiVersion, version: version])
+    filesMatching('*.yml') {
+        expand(tokens)
     }
 }
 
 jar {
     enabled = false
-    archiveClassifier.set(isLegacy ? 'legacy' : '')
 }
 
 shadowJar {
@@ -96,25 +100,3 @@ shadowJar {
 }
 
 build.dependsOn shadowJar
-
-// Task to build both variants sequentially
-tasks.register('buildBoth') {
-    group = 'build'
-    description = 'Build both legacy (1.16) and modern (1.21) jars'
-    doLast {
-        println "Use: ./gradlew shadowJar (modern) && ./gradlew shadowJar -Plegacy (legacy)"
-        println "Or run: ./gradlew buildBothExec (executes both)"
-    }
-}
-
-tasks.register('buildBothExec') {
-    group = 'build'
-    description = 'Execute both builds via GradleBuild'
-    dependsOn shadowJar
-    doLast {
-        def legacyBuild = tasks.create('legacyBuildInternal', GradleBuild)
-        legacyBuild.tasks = ['clean', 'shadowJar']
-        legacyBuild.startParameter.projectProperties = ['legacy': '']
-        legacyBuild.startParameter.systemPropertiesArgs = [:]
-    }
-}

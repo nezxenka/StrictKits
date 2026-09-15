@@ -1,22 +1,36 @@
 package org.nezxenka.StrictKits.kit;
 
-import org.bukkit.Material;
+import lombok.AccessLevel;
+import lombok.Getter;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
+import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
+@Getter
 public final class Kit {
 
-    private static final ItemStack[] EMPTY = new ItemStack[0];
-
-    public static final long MAX_COOLDOWN_SECONDS = 315360000L;
+    public static final long MAX_COOLDOWN_SECONDS = TimeUnit.DAYS.toSeconds(3650L);
     public static final int MAX_NAME_LENGTH = 32;
+    public static final int STORAGE_SIZE = 36;
+    public static final int ARMOR_SIZE = 4;
+    public static final int OFFHAND_SLOT = 40;
+    public static final String PERMISSION_PREFIX = "strictkits.kits.";
+
+    private static final Pattern VALID_NAME = Pattern.compile("[\\p{L}\\p{Nd}_-]{1," + MAX_NAME_LENGTH + "}");
+    private static final ItemStack[] EMPTY = new ItemStack[0];
+    private static final EquipmentSlot[] ARMOR_SLOTS = {
+            EquipmentSlot.FEET, EquipmentSlot.LEGS, EquipmentSlot.CHEST, EquipmentSlot.HEAD};
 
     private final String name;
     private final String key;
-    private final AtomicBoolean dirty = new AtomicBoolean(false);
+    @Getter(AccessLevel.NONE)
+    private final AtomicBoolean dirty = new AtomicBoolean();
 
     private volatile long cooldown;
     private volatile String permission;
@@ -29,45 +43,24 @@ public final class Kit {
     public Kit(String name) {
         this.name = name;
         this.key = name.toLowerCase();
-        this.permission = "strictkits.kits." + name;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getKey() {
-        return key;
+        this.permission = PERMISSION_PREFIX + name;
     }
 
     public static boolean isValidName(String name) {
-        if (name == null || name.isEmpty() || name.length() > MAX_NAME_LENGTH) {
-            return false;
-        }
-        for (int i = 0; i < name.length(); i++) {
-            char c = name.charAt(i);
-            if (!Character.isLetterOrDigit(c) && c != '_' && c != '-') {
-                return false;
-            }
-        }
-        return true;
+        return name != null && VALID_NAME.matcher(name).matches();
     }
 
-    public long getCooldown() {
-        return cooldown;
+    public static boolean isAir(ItemStack item) {
+        return item == null || item.getType().isAir();
     }
 
     public long getCooldownMillis() {
-        return cooldown * 1000L;
+        return TimeUnit.SECONDS.toMillis(cooldown);
     }
 
     public void setCooldown(long cooldown) {
-        this.cooldown = cooldown < 0L ? 0L : Math.min(cooldown, MAX_COOLDOWN_SECONDS);
+        this.cooldown = Math.min(Math.max(0L, cooldown), MAX_COOLDOWN_SECONDS);
         markDirty();
-    }
-
-    public String getPermission() {
-        return permission;
     }
 
     public void setPermission(String permission) {
@@ -75,17 +68,9 @@ public final class Kit {
         markDirty();
     }
 
-    public boolean isOneTimeUse() {
-        return oneTimeUse;
-    }
-
     public void setOneTimeUse(boolean oneTimeUse) {
         this.oneTimeUse = oneTimeUse;
         markDirty();
-    }
-
-    public boolean isFirstTimeJoinKit() {
-        return firstTimeJoinKit;
     }
 
     public void setFirstTimeJoinKit(boolean firstTimeJoinKit) {
@@ -93,26 +78,14 @@ public final class Kit {
         markDirty();
     }
 
-    public ItemStack[] getMainContent() {
-        return mainContent;
-    }
-
     public void setMainContent(ItemStack[] mainContent) {
         this.mainContent = copyOf(mainContent);
         markDirty();
     }
 
-    public ItemStack[] getArmorContent() {
-        return armorContent;
-    }
-
     public void setArmorContent(ItemStack[] armorContent) {
         this.armorContent = copyOf(armorContent);
         markDirty();
-    }
-
-    public ItemStack getIcon() {
-        return icon;
     }
 
     public void setIcon(ItemStack icon) {
@@ -121,17 +94,7 @@ public final class Kit {
     }
 
     public boolean isEmpty() {
-        for (ItemStack item : mainContent) {
-            if (item != null && item.getType() != Material.AIR) {
-                return false;
-            }
-        }
-        for (ItemStack item : armorContent) {
-            if (item != null && item.getType() != Material.AIR) {
-                return false;
-            }
-        }
-        return true;
+        return Arrays.stream(mainContent).allMatch(Kit::isAir) && Arrays.stream(armorContent).allMatch(Kit::isAir);
     }
 
     public void markDirty() {
@@ -144,7 +107,7 @@ public final class Kit {
 
     public boolean hasAccess(Player player) {
         return player.hasPermission(permission)
-                || player.hasPermission("strictkits.kits.*")
+                || player.hasPermission(PERMISSION_PREFIX + "*")
                 || player.hasPermission("strictkits.admin");
     }
 
@@ -152,87 +115,47 @@ public final class Kit {
     public void applyTo(Player player) {
         PlayerInventory inventory = player.getInventory();
         ItemStack[] main = mainContent;
-        for (int i = 0; i < main.length; i++) {
-            ItemStack item = main[i];
-            if (item == null || item.getType() == Material.AIR) {
+        for (int slot = 0; slot < main.length; slot++) {
+            ItemStack item = main[slot];
+            if (isAir(item)) {
                 continue;
             }
-            ItemStack copy = item.clone();
-            if (i == 40 && inventory.getItemInOffHand().getType() == Material.AIR) {
-                inventory.setItemInOffHand(copy);
+            if (slot == OFFHAND_SLOT && isAir(inventory.getItemInOffHand())) {
+                inventory.setItemInOffHand(item.clone());
             } else {
-                deliver(player, copy);
+                deliver(player, item.clone());
             }
         }
-        ItemStack[] armor = armorContent;
-        applyArmor(player, armor, 3);
-        applyArmor(player, armor, 2);
-        applyArmor(player, armor, 1);
-        applyArmor(player, armor, 0);
+        equipArmor(player);
         player.updateInventory();
     }
 
-    private void applyArmor(Player player, ItemStack[] armor, int slot) {
-        if (slot >= armor.length) {
-            return;
-        }
-        ItemStack item = armor[slot];
-        if (item == null || item.getType() == Material.AIR) {
-            return;
-        }
-        ItemStack copy = item.clone();
+    private void equipArmor(Player player) {
         PlayerInventory inventory = player.getInventory();
-        ItemStack current;
-        switch (slot) {
-            case 3:
-                current = inventory.getHelmet();
-                break;
-            case 2:
-                current = inventory.getChestplate();
-                break;
-            case 1:
-                current = inventory.getLeggings();
-                break;
-            default:
-                current = inventory.getBoots();
-                break;
-        }
-        if (current == null || current.getType() == Material.AIR) {
-            switch (slot) {
-                case 3:
-                    inventory.setHelmet(copy);
-                    break;
-                case 2:
-                    inventory.setChestplate(copy);
-                    break;
-                case 1:
-                    inventory.setLeggings(copy);
-                    break;
-                default:
-                    inventory.setBoots(copy);
-                    break;
+        ItemStack[] armor = armorContent;
+        for (int index = Math.min(armor.length, ARMOR_SLOTS.length) - 1; index >= 0; index--) {
+            ItemStack item = armor[index];
+            if (isAir(item)) {
+                continue;
             }
-            return;
+            EquipmentSlot slot = ARMOR_SLOTS[index];
+            if (isAir(inventory.getItem(slot))) {
+                inventory.setItem(slot, item.clone());
+            } else {
+                deliver(player, item.clone());
+            }
         }
-        deliver(player, copy);
+    }
+
+    private static void deliver(Player player, ItemStack item) {
+        player.getInventory().addItem(item).values()
+                .forEach(leftover -> player.getWorld().dropItemNaturally(player.getLocation(), leftover));
     }
 
     private static ItemStack[] copyOf(ItemStack[] source) {
         if (source == null || source.length == 0) {
             return EMPTY;
         }
-        ItemStack[] copy = new ItemStack[source.length];
-        for (int i = 0; i < source.length; i++) {
-            copy[i] = source[i] == null ? null : source[i].clone();
-        }
-        return copy;
-    }
-
-    private void deliver(Player player, ItemStack item) {
-        if (player.getInventory().firstEmpty() != -1) {
-            player.getInventory().addItem(item);
-        } else {
-            player.getWorld().dropItemNaturally(player.getLocation(), item);
-        }
+        return Arrays.stream(source).map(item -> item == null ? null : item.clone()).toArray(ItemStack[]::new);
     }
 }

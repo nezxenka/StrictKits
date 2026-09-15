@@ -1,52 +1,38 @@
 package org.nezxenka.StrictKits.util;
 
-public final class TimeFormat {
+import lombok.RequiredArgsConstructor;
+import lombok.experimental.UtilityClass;
 
-    private static final long SECOND = 1000L;
-    private static final long MINUTE = 60L * SECOND;
-    private static final long HOUR = 60L * MINUTE;
-    private static final long DAY = 24L * HOUR;
-    private static final long MONTH = 30L * DAY;
-    private static final long YEAR = 365L * DAY;
+import java.util.concurrent.TimeUnit;
 
-    private TimeFormat() {
-    }
+@UtilityClass
+public class TimeFormat {
 
-    public static String getFormattedCooldown(long millis) {
+    public static String format(long millis) {
         if (millis <= 0L) {
             return "0s";
         }
-
-        long remaining = millis;
-        long years = remaining / YEAR;
-        remaining -= years * YEAR;
-        long months = remaining / MONTH;
-        remaining -= months * MONTH;
-        long days = remaining / DAY;
-        remaining -= days * DAY;
-        long hours = remaining / HOUR;
-        remaining -= hours * HOUR;
-        long minutes = remaining / MINUTE;
-        remaining -= minutes * MINUTE;
-        long seconds = remaining / SECOND;
-
         StringBuilder builder = new StringBuilder(24);
-        if (years > 0L) {
-            builder.append(years).append('y');
+        long remaining = millis;
+        for (Unit unit : Unit.values()) {
+            long amount = remaining / unit.millis;
+            remaining %= unit.millis;
+            if (amount > 0L || builder.length() > 0) {
+                builder.append(amount).append(unit.suffix);
+            }
         }
-        if (builder.length() > 0 || months > 0L) {
-            builder.append(months).append("mo");
-        }
-        if (builder.length() > 0 || days > 0L) {
-            builder.append(days).append('d');
-        }
-        if (builder.length() > 0 || hours > 0L) {
-            builder.append(hours).append('h');
-        }
-        if (builder.length() > 0 || minutes > 0L) {
-            builder.append(minutes).append('m');
-        }
-        builder.append(seconds).append('s');
-        return builder.toString();
+        return builder.append(TimeUnit.MILLISECONDS.toSeconds(remaining)).append('s').toString();
+    }
+
+    @RequiredArgsConstructor
+    private enum Unit {
+        YEAR(TimeUnit.DAYS.toMillis(365L), "y"),
+        MONTH(TimeUnit.DAYS.toMillis(30L), "mo"),
+        DAY(TimeUnit.DAYS.toMillis(1L), "d"),
+        HOUR(TimeUnit.HOURS.toMillis(1L), "h"),
+        MINUTE(TimeUnit.MINUTES.toMillis(1L), "m");
+
+        private final long millis;
+        private final String suffix;
     }
 }

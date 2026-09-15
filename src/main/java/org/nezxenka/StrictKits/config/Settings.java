@@ -1,10 +1,13 @@
 package org.nezxenka.StrictKits.config;
 
+import lombok.Getter;
 import org.bukkit.configuration.file.FileConfiguration;
 
+@Getter
 public final class Settings {
 
     private static final int MIN_REFRESH_TICKS = 10;
+    private static final int MAX_ROWS = 6;
 
     private final boolean guiDisplay;
     private final boolean guiPreview;
@@ -24,38 +27,6 @@ public final class Settings {
         this.commandThrottleMillis = Math.max(0L, config.getLong("settings.command-throttle-millis"));
         int refreshTicks = config.getInt("settings.gui-refresh-ticks");
         this.guiRefreshTicks = refreshTicks <= 0 ? 0 : Math.max(MIN_REFRESH_TICKS, refreshTicks);
-        this.guiRows = Math.min(6, Math.max(1, config.getInt("gui.rows")));
-    }
-
-    public boolean isGuiDisplay() {
-        return guiDisplay;
-    }
-
-    public boolean isGuiPreview() {
-        return guiPreview;
-    }
-
-    public boolean isDisplayWithoutPermission() {
-        return displayWithoutPermission;
-    }
-
-    public boolean isListRequiresPermission() {
-        return listRequiresPermission;
-    }
-
-    public boolean isPreviewRequiresPermission() {
-        return previewRequiresPermission;
-    }
-
-    public long getCommandThrottleMillis() {
-        return commandThrottleMillis;
-    }
-
-    public int getGuiRefreshTicks() {
-        return guiRefreshTicks;
-    }
-
-    public int getGuiRows() {
-        return guiRows;
+        this.guiRows = Math.min(MAX_ROWS, Math.max(1, config.getInt("gui.rows")));
     }
 }

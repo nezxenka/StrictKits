@@ -1,5 +1,7 @@
 package org.nezxenka.StrictKits.player;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import org.nezxenka.StrictKits.storage.DataEntry;
 import org.nezxenka.StrictKits.storage.DatabaseConfig;
 import org.nezxenka.StrictKits.storage.PlayerRecord;
@@ -8,6 +10,8 @@ import org.nezxenka.StrictKits.storage.cache.CacheProvider;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -22,12 +26,15 @@ import java.util.logging.Logger;
 
 public final class PlayerDataManager {
 
+    private static final long MIN_UNLOAD_PERIOD_SECONDS = 30L;
+
     private final StorageProvider storage;
     private final CacheProvider cache;
     private final DatabaseConfig config;
     private final Logger logger;
 
-    private final ConcurrentHashMap<UUID, PlayerData> loaded = new ConcurrentHashMap<>();
+    private final Map<UUID, PlayerData> loaded = new ConcurrentHashMap<>();
+    @Getter
     private final ExecutorService workers;
     private final ScheduledExecutorService scheduler;
 
@@ -54,15 +61,11 @@ public final class PlayerDataManager {
     }
 
     public void start() {
-        long period = config.getFlushIntervalSeconds();
-        scheduler.scheduleWithFixedDelay(this::flushSafely, period, period, TimeUnit.SECONDS);
-        long unloadPeriod = Math.max(30, config.getUnloadDelaySeconds());
+        long flushPeriod = config.getFlushIntervalSeconds();
+        scheduler.scheduleWithFixedDelay(this::flushSafely, flushPeriod, flushPeriod, TimeUnit.SECONDS);
+        long unloadPeriod = Math.max(MIN_UNLOAD_PERIOD_SECONDS, config.getUnloadDelaySeconds());
         scheduler.scheduleWithFixedDelay(this::evictOffline, unloadPeriod, unloadPeriod, TimeUnit.SECONDS);
-        cache.setKitInvalidationListener(this::onRemoteKitRemoved);
-    }
-
-    public ExecutorService getWorkers() {
-        return workers;
+        cache.setKitInvalidationListener(this::forgetKitLocally);
     }
 
     public PlayerData get(UUID uuid) {
@@ -78,9 +81,8 @@ public final class PlayerDataManager {
     }
 
     public PlayerData preload(UUID uuid) {
-        PlayerData existing = loaded.get(uuid);
+        PlayerData existing = get(uuid);
         if (existing != null) {
-            existing.touch();
             return existing;
         }
         PlayerData data = fetch(uuid);
@@ -110,7 +112,7 @@ public final class PlayerDataManager {
             logger.log(Level.SEVERE, "Не удалось загрузить данные игрока " + uuid, e);
             return new PlayerData(uuid);
         } finally {
-            long elapsed = (System.nanoTime() - started) / 1000000L;
+            long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
             if (elapsed > config.getLoadTimeoutMillis()) {
                 logger.warning("Загрузка данных " + uuid + " заняла " + elapsed + "ms");
             }
@@ -124,22 +126,23 @@ public final class PlayerDataManager {
         }
         data.setOnline(false);
         if (config.isSaveOnQuit() && data.isDirty()) {
-            workers.execute(() -> flushSingle(data));
+            workers.execute(() -> flushPlayer(data));
         }
     }
 
     private void evictOffline() {
-        long threshold = System.currentTimeMillis() - config.getUnloadDelaySeconds() * 1000L;
-        loaded.entrySet().removeIf(entry -> {
-            PlayerData data = entry.getValue();
+        long threshold = System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(config.getUnloadDelaySeconds());
+        loaded.values().removeIf(data -> {
             if (data.isOnline() || data.getLastAccess() > threshold) {
                 return false;
             }
-            if (data.isDirty()) {
-                flushSingle(data);
-            }
+            flushPlayer(data);
             return true;
         });
+    }
+
+    private void flushPlayer(PlayerData data) {
+        PendingWrite.drain(data).ifPresent(pending -> write(List.of(pending)));
     }
 
     private void flushSafely() {
@@ -151,98 +154,36 @@ public final class PlayerDataManager {
     }
 
     public void flush() {
-        if (loaded.isEmpty()) {
+        List<PendingWrite> pending = new ArrayList<>();
+        for (PlayerData data : loaded.values()) {
+            PendingWrite.drain(data).ifPresent(pending::add);
+        }
+        write(pending);
+    }
+
+    private void write(List<PendingWrite> pending) {
+        if (pending.isEmpty()) {
             return;
         }
         List<DataEntry> cooldownBatch = new ArrayList<>();
         List<DataEntry> claimBatch = new ArrayList<>();
-        List<PlayerData> touched = new ArrayList<>();
-        List<List<String>> cooldownKeys = new ArrayList<>();
-        List<List<String>> claimKeys = new ArrayList<>();
-
-        for (PlayerData data : loaded.values()) {
-            if (!data.isDirty()) {
-                continue;
-            }
-            List<String> cooldownDirty = data.drainDirtyCooldowns();
-            List<String> claimDirty = data.drainDirtyClaims();
-            if (cooldownDirty == null && claimDirty == null) {
-                continue;
-            }
-            touched.add(data);
-            cooldownKeys.add(cooldownDirty);
-            claimKeys.add(claimDirty);
-            appendEntries(cooldownBatch, data, cooldownDirty);
-            appendEntries(claimBatch, data, claimDirty);
-        }
-
-        if (touched.isEmpty()) {
-            return;
-        }
-
-        try {
-            storage.writeCooldowns(cooldownBatch);
-            storage.writeClaims(claimBatch);
-            writes.addAndGet(cooldownBatch.size() + claimBatch.size());
-            for (PlayerData data : touched) {
-                cache.put(data.toRecord());
-            }
-        } catch (Exception e) {
-            for (int i = 0; i < touched.size(); i++) {
-                List<String> cooldownDirty = cooldownKeys.get(i);
-                List<String> claimDirty = claimKeys.get(i);
-                if (cooldownDirty != null) {
-                    touched.get(i).restoreDirtyCooldowns(cooldownDirty);
-                }
-                if (claimDirty != null) {
-                    touched.get(i).restoreDirtyClaims(claimDirty);
-                }
-            }
-            logger.log(Level.SEVERE, "Не удалось записать пакет данных, повтор при следующем сбросе", e);
-        }
-    }
-
-    private static void appendEntries(List<DataEntry> target, PlayerData data, List<String> keys) {
-        if (keys == null) {
-            return;
-        }
         long fallback = System.currentTimeMillis();
-        for (String key : keys) {
-            long stamp = data.getCooldown(key);
-            target.add(new DataEntry(data.getUuid(), key, stamp == 0L ? fallback : stamp));
+        for (PendingWrite write : pending) {
+            write.appendEntries(cooldownBatch, claimBatch, fallback);
         }
-    }
-
-    private void flushSingle(PlayerData data) {
-        List<String> cooldownDirty = data.drainDirtyCooldowns();
-        List<String> claimDirty = data.drainDirtyClaims();
-        if (cooldownDirty == null && claimDirty == null) {
-            return;
-        }
-        List<DataEntry> cooldownBatch = new ArrayList<>(cooldownDirty == null ? 0 : cooldownDirty.size());
-        List<DataEntry> claimBatch = new ArrayList<>(claimDirty == null ? 0 : claimDirty.size());
-        appendEntries(cooldownBatch, data, cooldownDirty);
-        appendEntries(claimBatch, data, claimDirty);
         try {
             storage.writeCooldowns(cooldownBatch);
             storage.writeClaims(claimBatch);
             writes.addAndGet(cooldownBatch.size() + claimBatch.size());
-            cache.put(data.toRecord());
+            pending.forEach(write -> cache.put(write.getData().toRecord()));
         } catch (Exception e) {
-            if (cooldownDirty != null) {
-                data.restoreDirtyCooldowns(cooldownDirty);
-            }
-            if (claimDirty != null) {
-                data.restoreDirtyClaims(claimDirty);
-            }
-            logger.log(Level.SEVERE, "Не удалось сохранить данные игрока " + data.getUuid(), e);
+            pending.forEach(PendingWrite::restore);
+            logger.log(Level.SEVERE, "Не удалось записать данные игроков, повтор при следующем сбросе", e);
         }
     }
 
     public void onKitRemoved(String kitKey) {
-        for (PlayerData data : loaded.values()) {
-            data.forgetKit(kitKey);
-        }
+        forgetKitLocally(kitKey);
         workers.execute(() -> {
             try {
                 storage.deleteKit(kitKey);
@@ -269,15 +210,12 @@ public final class PlayerDataManager {
         });
     }
 
-    private void onRemoteKitRemoved(String kitKey) {
-        for (PlayerData data : loaded.values()) {
-            data.forgetKit(kitKey);
-        }
+    private void forgetKitLocally(String kitKey) {
+        loaded.values().forEach(data -> data.forgetKit(kitKey));
     }
 
     public void shutdown() {
         scheduler.shutdownNow();
-        flushSafely();
         workers.shutdown();
         try {
             if (!workers.awaitTermination(15L, TimeUnit.SECONDS)) {
@@ -287,6 +225,7 @@ public final class PlayerDataManager {
             workers.shutdownNow();
             Thread.currentThread().interrupt();
         }
+        flushSafely();
         loaded.clear();
     }
 
@@ -303,12 +242,49 @@ public final class PlayerDataManager {
     }
 
     public long getCacheHitRatio() {
-        long hits = cacheHits.get();
-        long total = hits + cacheMisses.get();
-        return total == 0L ? 0L : hits * 100L / total;
+        long lookups = getCacheLookups();
+        return lookups == 0L ? 0L : getCacheHits() * 100L / lookups;
     }
 
     public long getWrites() {
         return writes.get();
+    }
+
+    @RequiredArgsConstructor
+    private static final class PendingWrite {
+
+        @Getter
+        private final PlayerData data;
+        private final List<String> cooldownKeys;
+        private final List<String> claimKeys;
+
+        static Optional<PendingWrite> drain(PlayerData data) {
+            if (!data.isDirty()) {
+                return Optional.empty();
+            }
+            List<String> cooldownKeys = data.drainDirtyCooldowns();
+            List<String> claimKeys = data.drainDirtyClaims();
+            if (cooldownKeys.isEmpty() && claimKeys.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(new PendingWrite(data, cooldownKeys, claimKeys));
+        }
+
+        void appendEntries(List<DataEntry> cooldownBatch, List<DataEntry> claimBatch, long fallback) {
+            append(cooldownBatch, cooldownKeys, fallback);
+            append(claimBatch, claimKeys, fallback);
+        }
+
+        void restore() {
+            data.restoreDirtyCooldowns(cooldownKeys);
+            data.restoreDirtyClaims(claimKeys);
+        }
+
+        private void append(List<DataEntry> batch, List<String> keys, long fallback) {
+            for (String key : keys) {
+                long stamp = data.getCooldown(key);
+                batch.add(new DataEntry(data.getUuid(), key, stamp == 0L ? fallback : stamp));
+            }
+        }
     }
 }

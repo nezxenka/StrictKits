@@ -1,5 +1,6 @@
 package org.nezxenka.StrictKits.storage.cache;
 
+import lombok.RequiredArgsConstructor;
 import org.nezxenka.StrictKits.storage.DatabaseConfig;
 import org.nezxenka.StrictKits.storage.PlayerRecord;
 import redis.clients.jedis.Jedis;
@@ -14,14 +15,18 @@ import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+@RequiredArgsConstructor
 public final class RedisCache implements CacheProvider {
 
     private static final int SUBSCRIBER_SO_TIMEOUT = 0;
+    private static final long MIN_BACKOFF_MILLIS = 1000L;
+    private static final long MAX_BACKOFF_MILLIS = 30000L;
+    private static final String KIT_INVALIDATION = "k";
 
     private final DatabaseConfig config;
     private final Logger logger;
     private final String nodeId = UUID.randomUUID().toString();
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean running = new AtomicBoolean();
 
     private JedisPool pool;
     private String recordPrefix;
@@ -31,20 +36,15 @@ public final class RedisCache implements CacheProvider {
     private Thread subscriber;
     private JedisPubSub pubSub;
 
-    public RedisCache(DatabaseConfig config, Logger logger) {
-        this.config = config;
-        this.logger = logger;
-    }
-
     @Override
     public String name() {
         return "Redis";
     }
 
     @Override
-    public void initialize() throws Exception {
-        this.recordPrefix = config.getRedisKeyPrefix() + "pd:";
-        this.generationKey = config.getRedisKeyPrefix() + "gen";
+    public void initialize() {
+        recordPrefix = config.getRedisKeyPrefix() + "pd:";
+        generationKey = config.getRedisKeyPrefix() + "gen";
 
         JedisPoolConfig poolConfig = new JedisPoolConfig();
         poolConfig.setMaxTotal(config.getRedisMaxTotal());
@@ -55,37 +55,16 @@ public final class RedisCache implements CacheProvider {
         poolConfig.setTestWhileIdle(true);
         poolConfig.setBlockWhenExhausted(true);
 
-        this.pool = new JedisPool(poolConfig, config.getRedisHost(), config.getRedisPort(),
+        pool = new JedisPool(poolConfig, config.getRedisHost(), config.getRedisPort(),
                 config.getRedisTimeout(), emptyToNull(config.getRedisUsername()),
                 emptyToNull(config.getRedisPassword()), config.getRedisDatabase(), null, config.isRedisSsl());
 
         try (Jedis jedis = pool.getResource()) {
-            String stored = jedis.get(generationKey);
-            if (stored == null) {
-                jedis.set(generationKey, "1");
-                generation = 1L;
-            } else {
-                generation = parseLong(stored, 1L);
-            }
+            jedis.setnx(generationKey, "1");
+            generation = parseLong(jedis.get(generationKey), 1L);
         }
         running.set(true);
         startSubscriber();
-    }
-
-    private static String emptyToNull(String value) {
-        return value == null || value.isEmpty() ? null : value;
-    }
-
-    private static long parseLong(String raw, long fallback) {
-        try {
-            return Long.parseLong(raw);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private String key(UUID uuid) {
-        return recordPrefix + generation + ':' + uuid;
     }
 
     @Override
@@ -116,97 +95,15 @@ public final class RedisCache implements CacheProvider {
         try (Jedis jedis = pool.getResource()) {
             long next = jedis.incr(generationKey);
             generation = next;
-            jedis.publish(config.getRedisChannel(), "k:" + nodeId + ':' + next + ':' + kit);
+            jedis.publish(config.getRedisChannel(), String.join(":", KIT_INVALIDATION, nodeId, Long.toString(next), kit));
         } catch (JedisException e) {
             logger.log(Level.WARNING, "Redis: не удалось сбросить кэш кита " + kit, e);
         }
     }
 
     @Override
-    public void setKitInvalidationListener(Consumer<String> kitListener) {
-        this.kitListener = kitListener;
-    }
-
-    private void startSubscriber() {
-        this.pubSub = new JedisPubSub() {
-            @Override
-            public void onMessage(String channel, String message) {
-                handleMessage(message);
-            }
-        };
-        this.subscriber = new Thread(this::subscribeLoop, "StrictKits-Redis-Sub");
-        this.subscriber.setDaemon(true);
-        this.subscriber.start();
-    }
-
-    private Jedis openSubscriberConnection() {
-        Jedis jedis = new Jedis(config.getRedisHost(), config.getRedisPort(),
-                config.getRedisTimeout(), SUBSCRIBER_SO_TIMEOUT, config.isRedisSsl());
-        String password = emptyToNull(config.getRedisPassword());
-        if (password != null) {
-            String user = emptyToNull(config.getRedisUsername());
-            if (user != null) {
-                jedis.auth(user, password);
-            } else {
-                jedis.auth(password);
-            }
-        }
-        if (config.getRedisDatabase() > 0) {
-            jedis.select(config.getRedisDatabase());
-        }
-        return jedis;
-    }
-
-    private void subscribeLoop() {
-        long backoff = 1000L;
-        while (running.get()) {
-            try (Jedis jedis = openSubscriberConnection()) {
-                backoff = 1000L;
-                jedis.subscribe(pubSub, config.getRedisChannel());
-            } catch (Exception e) {
-                if (!running.get()) {
-                    return;
-                }
-                logger.log(Level.WARNING, "Redis: подписка разорвана, повтор через " + backoff + "ms", e);
-            }
-            if (!running.get()) {
-                return;
-            }
-            try {
-                Thread.sleep(backoff);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            backoff = Math.min(backoff * 2L, 30000L);
-        }
-    }
-
-    private void handleMessage(String message) {
-        if (message.isEmpty() || message.charAt(0) != 'k') {
-            return;
-        }
-        int first = message.indexOf(':');
-        if (first < 0) {
-            return;
-        }
-        int second = message.indexOf(':', first + 1);
-        if (second < 0) {
-            return;
-        }
-        if (nodeId.equals(message.substring(first + 1, second))) {
-            return;
-        }
-        String payload = message.substring(second + 1);
-        int split = payload.indexOf(':');
-        if (split < 0) {
-            return;
-        }
-        generation = parseLong(payload.substring(0, split), generation);
-        Consumer<String> listener = kitListener;
-        if (listener != null) {
-            listener.accept(payload.substring(split + 1));
-        }
+    public void setKitInvalidationListener(Consumer<String> listener) {
+        this.kitListener = listener;
     }
 
     @Override
@@ -223,6 +120,89 @@ public final class RedisCache implements CacheProvider {
         }
         if (pool != null) {
             pool.close();
+        }
+    }
+
+    private String key(UUID uuid) {
+        return recordPrefix + generation + ':' + uuid;
+    }
+
+    private void startSubscriber() {
+        pubSub = new JedisPubSub() {
+            @Override
+            public void onMessage(String channel, String message) {
+                handleMessage(message);
+            }
+        };
+        subscriber = new Thread(this::subscribeLoop, "StrictKits-Redis-Sub");
+        subscriber.setDaemon(true);
+        subscriber.start();
+    }
+
+    private Jedis openSubscriberConnection() {
+        Jedis jedis = new Jedis(config.getRedisHost(), config.getRedisPort(),
+                config.getRedisTimeout(), SUBSCRIBER_SO_TIMEOUT, config.isRedisSsl());
+        String password = emptyToNull(config.getRedisPassword());
+        String user = emptyToNull(config.getRedisUsername());
+        if (password != null && user != null) {
+            jedis.auth(user, password);
+        } else if (password != null) {
+            jedis.auth(password);
+        }
+        if (config.getRedisDatabase() > 0) {
+            jedis.select(config.getRedisDatabase());
+        }
+        return jedis;
+    }
+
+    private void subscribeLoop() {
+        long backoff = MIN_BACKOFF_MILLIS;
+        while (running.get()) {
+            try (Jedis jedis = openSubscriberConnection()) {
+                backoff = MIN_BACKOFF_MILLIS;
+                jedis.subscribe(pubSub, config.getRedisChannel());
+            } catch (Exception e) {
+                if (running.get()) {
+                    logger.log(Level.WARNING, "Redis: подписка разорвана, повтор через " + backoff + "ms", e);
+                }
+            }
+            if (!running.get()) {
+                return;
+            }
+            try {
+                Thread.sleep(backoff);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            backoff = Math.min(backoff * 2L, MAX_BACKOFF_MILLIS);
+        }
+    }
+
+    private void handleMessage(String message) {
+        String[] parts = message.split(":", 4);
+        if (parts.length != 4 || !KIT_INVALIDATION.equals(parts[0]) || nodeId.equals(parts[1])) {
+            return;
+        }
+        generation = parseLong(parts[2], generation);
+        Consumer<String> listener = kitListener;
+        if (listener != null) {
+            listener.accept(parts[3]);
+        }
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private static long parseLong(String raw, long fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            return fallback;
         }
     }
 }

@@ -1,5 +1,6 @@
 package org.nezxenka.StrictKits.storage;
 
+import lombok.RequiredArgsConstructor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
@@ -11,30 +12,26 @@ import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+@RequiredArgsConstructor
 public final class LegacyImporter {
+
+    private static final String COOLDOWNS_FILE = "Cooldowns.yml";
+    private static final String CLAIMS_FILE = "OneTimeUseList.yml";
 
     private final File folder;
     private final StorageProvider storage;
     private final Logger logger;
     private final Map<String, UUID> knownPlayers;
+
     private int skipped;
 
-    public LegacyImporter(File folder, StorageProvider storage, Logger logger, Map<String, UUID> knownPlayers) {
-        this.folder = folder;
-        this.storage = storage;
-        this.logger = logger;
-        this.knownPlayers = knownPlayers;
-    }
-
-    public boolean hasLegacyData() {
-        return new File(folder, "Cooldowns.yml").exists() || new File(folder, "OneTimeUseList.yml").exists();
+    public static boolean hasLegacyData(File folder) {
+        return new File(folder, COOLDOWNS_FILE).exists() || new File(folder, CLAIMS_FILE).exists();
     }
 
     public void run() {
         skipped = 0;
-        int imported = 0;
-        imported += importCooldowns();
-        imported += importClaims();
+        int imported = importCooldowns() + importClaims();
         if (imported > 0) {
             logger.info("Импортировано записей из YAML в базу: " + imported);
         }
@@ -44,33 +41,29 @@ public final class LegacyImporter {
     }
 
     private int importCooldowns() {
-        File file = new File(folder, "Cooldowns.yml");
+        File file = new File(folder, COOLDOWNS_FILE);
         if (!file.exists()) {
             return 0;
         }
-        YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-        ConfigurationSection section = config.getConfigurationSection("Cooldowns");
-        if (section == null) {
-            archive(file);
-            return 0;
-        }
+        ConfigurationSection section = YamlConfiguration.loadConfiguration(file).getConfigurationSection("Cooldowns");
         List<DataEntry> entries = new ArrayList<>();
-        for (String key : section.getKeys(false)) {
-            int split = key.indexOf('*');
-            if (split <= 0 || split == key.length() - 1) {
-                continue;
+        if (section != null) {
+            for (String key : section.getKeys(false)) {
+                int split = key.indexOf('*');
+                if (split <= 0 || split == key.length() - 1) {
+                    continue;
+                }
+                UUID uuid = resolve(key.substring(0, split));
+                if (uuid != null) {
+                    entries.add(new DataEntry(uuid, key.substring(split + 1).toLowerCase(), section.getLong(key)));
+                }
             }
-            UUID uuid = resolve(key.substring(0, split));
-            if (uuid == null) {
-                continue;
-            }
-            entries.add(new DataEntry(uuid, key.substring(split + 1).toLowerCase(), section.getLong(key)));
         }
-        return write(file, entries, true);
+        return write(file, entries, storage::writeCooldowns);
     }
 
     private int importClaims() {
-        File file = new File(folder, "OneTimeUseList.yml");
+        File file = new File(folder, CLAIMS_FILE);
         if (!file.exists()) {
             return 0;
         }
@@ -85,19 +78,13 @@ public final class LegacyImporter {
                 }
             }
         }
-        return write(file, entries, false);
+        return write(file, entries, storage::writeClaims);
     }
 
-    private int write(File file, List<DataEntry> entries, boolean cooldowns) {
-        if (entries.isEmpty()) {
-            archive(file);
-            return 0;
-        }
+    private int write(File file, List<DataEntry> entries, BatchWriter writer) {
         try {
-            if (cooldowns) {
-                storage.writeCooldowns(entries);
-            } else {
-                storage.writeClaims(entries);
+            if (!entries.isEmpty()) {
+                writer.write(entries);
             }
             archive(file);
             return entries.size();
@@ -127,5 +114,11 @@ public final class LegacyImporter {
         if (!file.renameTo(target)) {
             logger.warning("Не удалось переименовать " + file.getName() + " после импорта");
         }
+    }
+
+    @FunctionalInterface
+    private interface BatchWriter {
+
+        void write(List<DataEntry> entries) throws Exception;
     }
 }

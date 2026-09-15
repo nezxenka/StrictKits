@@ -1,49 +1,40 @@
 package org.nezxenka.StrictKits.kit;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
+import lombok.RequiredArgsConstructor;
+
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+@RequiredArgsConstructor
 public final class KitManager {
 
-    private final ConcurrentHashMap<String, Kit> kits = new ConcurrentHashMap<>();
-    private final KitStorage storage;
-    private final ExecutorService ioExecutor;
-    private volatile List<Kit> snapshot = Collections.emptyList();
-    private volatile List<String> nameSnapshot = Collections.emptyList();
+    private static final Comparator<Kit> BY_NAME = Comparator.comparing(Kit::getName, String.CASE_INSENSITIVE_ORDER);
 
-    public KitManager(KitStorage storage) {
-        this.storage = storage;
-        this.ioExecutor = Executors.newSingleThreadExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "StrictKits-KitIO");
-            thread.setDaemon(true);
-            return thread;
-        });
-    }
+    private final KitStorage storage;
+    private final Map<String, Kit> kits = new ConcurrentHashMap<>();
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "StrictKits-KitIO");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    private volatile List<Kit> snapshot = List.of();
+    private volatile List<String> nameSnapshot = List.of();
 
     public int loadAll() {
         kits.clear();
-        for (Kit kit : storage.loadAll()) {
-            kits.put(kit.getKey(), kit);
-        }
+        storage.loadAll().forEach(kit -> kits.put(kit.getKey(), kit));
         rebuildSnapshot();
         return kits.size();
     }
 
     public Kit get(String name) {
-        if (name == null || name.isEmpty()) {
-            return null;
-        }
-        return kits.get(name.toLowerCase());
-    }
-
-    public boolean exists(String name) {
-        return get(name) != null;
+        return name == null || name.isEmpty() ? null : kits.get(name.toLowerCase());
     }
 
     public List<Kit> all() {
@@ -60,23 +51,21 @@ public final class KitManager {
 
     public Kit create(String name) {
         Kit kit = new Kit(name);
-        kit.markDirty();
         if (kits.putIfAbsent(kit.getKey(), kit) != null) {
             return null;
         }
         rebuildSnapshot();
+        kit.markDirty();
         flush(kit);
         return kit;
     }
 
-    public boolean remove(Kit kit) {
+    public void remove(Kit kit) {
         if (kits.remove(kit.getKey(), kit)) {
             rebuildSnapshot();
             kit.consumeDirty();
             submit(() -> storage.delete(kit));
-            return true;
         }
-        return false;
     }
 
     public void flush(Kit kit) {
@@ -93,14 +82,6 @@ public final class KitManager {
         }
     }
 
-    private void submit(Runnable task) {
-        if (ioExecutor.isShutdown()) {
-            task.run();
-            return;
-        }
-        ioExecutor.execute(task);
-    }
-
     public void shutdown() {
         ioExecutor.shutdown();
         try {
@@ -113,15 +94,17 @@ public final class KitManager {
         }
     }
 
-    private void rebuildSnapshot() {
-        Collection<Kit> values = kits.values();
-        List<Kit> list = new ArrayList<>(values);
-        list.sort((left, right) -> left.getName().compareToIgnoreCase(right.getName()));
-        List<String> names = new ArrayList<>(list.size());
-        for (Kit kit : list) {
-            names.add(kit.getName());
+    private void submit(Runnable task) {
+        if (ioExecutor.isShutdown()) {
+            task.run();
+        } else {
+            ioExecutor.execute(task);
         }
-        this.snapshot = Collections.unmodifiableList(list);
-        this.nameSnapshot = Collections.unmodifiableList(names);
+    }
+
+    private void rebuildSnapshot() {
+        List<Kit> sorted = kits.values().stream().sorted(BY_NAME).toList();
+        snapshot = sorted;
+        nameSnapshot = sorted.stream().map(Kit::getName).toList();
     }
 }

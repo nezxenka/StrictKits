@@ -1,63 +1,34 @@
 package org.nezxenka.StrictKits.storage.cache;
 
+import lombok.experimental.UtilityClass;
 import org.nezxenka.StrictKits.storage.PlayerRecord;
 
+import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-public final class RecordCodec {
+@UtilityClass
+public class RecordCodec {
 
     private static final char SECTION = (char) 1;
     private static final char ENTRY = (char) 2;
     private static final char FIELD = (char) 3;
-
-    private RecordCodec() {
-    }
+    private static final String ENTRY_SEPARATOR = String.valueOf(ENTRY);
 
     public static String encode(PlayerRecord record) {
-        for (String key : record.getCooldowns().keySet()) {
-            if (!isSafe(key)) {
-                return null;
-            }
+        Map<String, Long> cooldowns = record.getCooldowns();
+        Set<String> claims = record.getClaims();
+        if (!Stream.concat(cooldowns.keySet().stream(), claims.stream()).allMatch(RecordCodec::isSafe)) {
+            return null;
         }
-        for (String claim : record.getClaims()) {
-            if (!isSafe(claim)) {
-                return null;
-            }
-        }
-
-        StringBuilder builder = new StringBuilder(128);
-        boolean first = true;
-        for (Map.Entry<String, Long> entry : record.getCooldowns().entrySet()) {
-            if (!first) {
-                builder.append(ENTRY);
-            }
-            builder.append(entry.getKey()).append(FIELD).append(entry.getValue().longValue());
-            first = false;
-        }
-        builder.append(SECTION);
-        first = true;
-        for (String claim : record.getClaims()) {
-            if (!first) {
-                builder.append(ENTRY);
-            }
-            builder.append(claim);
-            first = false;
-        }
-        return builder.toString();
-    }
-
-    private static boolean isSafe(String value) {
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (c == SECTION || c == ENTRY || c == FIELD) {
-                return false;
-            }
-        }
-        return true;
+        StringJoiner encodedCooldowns = new StringJoiner(ENTRY_SEPARATOR);
+        cooldowns.forEach((kit, stamp) -> encodedCooldowns.add(kit + FIELD + stamp));
+        return encodedCooldowns.toString() + SECTION + String.join(ENTRY_SEPARATOR, claims);
     }
 
     public static PlayerRecord decode(UUID uuid, String data) {
@@ -69,32 +40,25 @@ public final class RecordCodec {
             return null;
         }
         Map<String, Long> cooldowns = new HashMap<>(8);
-        Set<String> claims = new HashSet<>(8);
-
-        int cursor = 0;
-        while (cursor < section) {
-            int next = data.indexOf(ENTRY, cursor);
-            int end = (next < 0 || next > section) ? section : next;
-            int field = data.indexOf(FIELD, cursor);
-            if (field > cursor && field < end) {
-                try {
-                    cooldowns.put(data.substring(cursor, field), Long.parseLong(data.substring(field + 1, end)));
-                } catch (NumberFormatException ignored) {
-                }
+        entries(data.substring(0, section)).forEach(entry -> {
+            int field = entry.indexOf(FIELD);
+            if (field <= 0) {
+                return;
             }
-            cursor = end + 1;
-        }
-
-        cursor = section + 1;
-        int length = data.length();
-        while (cursor < length) {
-            int next = data.indexOf(ENTRY, cursor);
-            int end = next < 0 ? length : next;
-            if (end > cursor) {
-                claims.add(data.substring(cursor, end));
+            try {
+                cooldowns.put(entry.substring(0, field), Long.parseLong(entry.substring(field + 1)));
+            } catch (NumberFormatException ignored) {
             }
-            cursor = end + 1;
-        }
+        });
+        Set<String> claims = entries(data.substring(section + 1)).collect(Collectors.toSet());
         return new PlayerRecord(uuid, cooldowns, claims);
+    }
+
+    private static Stream<String> entries(String section) {
+        return Arrays.stream(section.split(ENTRY_SEPARATOR)).filter(entry -> !entry.isEmpty());
+    }
+
+    private static boolean isSafe(String value) {
+        return value.indexOf(SECTION) < 0 && value.indexOf(ENTRY) < 0 && value.indexOf(FIELD) < 0;
     }
 }

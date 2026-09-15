@@ -7,7 +7,8 @@ import java.util.function.Consumer;
 
 public interface CacheProvider {
 
-    void initialize() throws Exception;
+    default void initialize() throws Exception {
+    }
 
     void shutdown();
 
@@ -19,5 +20,6 @@ public interface CacheProvider {
 
     void invalidateKit(String kit);
 
-    void setKitInvalidationListener(Consumer<String> kitListener);
+    default void setKitInvalidationListener(Consumer<String> listener) {
+    }
 }

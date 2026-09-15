@@ -1,5 +1,7 @@
 package org.nezxenka.StrictKits.player;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import org.nezxenka.StrictKits.storage.PlayerRecord;
 
 import java.util.ArrayList;
@@ -11,19 +13,20 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+@RequiredArgsConstructor
 public final class PlayerData {
 
+    @Getter
     private final UUID uuid;
-    private final ConcurrentHashMap<String, Long> cooldowns = new ConcurrentHashMap<>(8);
+    private final Map<String, Long> cooldowns = new ConcurrentHashMap<>(8);
     private final Set<String> claims = ConcurrentHashMap.newKeySet(8);
     private final Set<String> dirtyCooldowns = ConcurrentHashMap.newKeySet(4);
     private final Set<String> dirtyClaims = ConcurrentHashMap.newKeySet(4);
-    private volatile long lastAccess = System.currentTimeMillis();
-    private volatile boolean online;
 
-    public PlayerData(UUID uuid) {
-        this.uuid = uuid;
-    }
+    @Getter
+    private volatile long lastAccess = System.currentTimeMillis();
+    @Getter
+    private volatile boolean online;
 
     public static PlayerData from(PlayerRecord record) {
         PlayerData data = new PlayerData(record.getUuid());
@@ -32,13 +35,8 @@ public final class PlayerData {
         return data;
     }
 
-    public UUID getUuid() {
-        return uuid;
-    }
-
     public long getCooldown(String kitKey) {
-        Long value = cooldowns.get(kitKey);
-        return value == null ? 0L : value;
+        return cooldowns.getOrDefault(kitKey, 0L);
     }
 
     public void setCooldown(String kitKey, long timestamp) {
@@ -78,19 +76,6 @@ public final class PlayerData {
         return drain(dirtyClaims);
     }
 
-    private static List<String> drain(Set<String> source) {
-        if (source.isEmpty()) {
-            return null;
-        }
-        List<String> drained = new ArrayList<>(source.size());
-        for (String key : source) {
-            if (source.remove(key)) {
-                drained.add(key);
-            }
-        }
-        return drained.isEmpty() ? null : drained;
-    }
-
     public void restoreDirtyCooldowns(List<String> keys) {
         dirtyCooldowns.addAll(keys);
     }
@@ -100,25 +85,25 @@ public final class PlayerData {
     }
 
     public PlayerRecord toRecord() {
-        Map<String, Long> cooldownCopy = new HashMap<>(cooldowns);
-        Set<String> claimCopy = new HashSet<>(claims);
-        return new PlayerRecord(uuid, cooldownCopy, claimCopy);
+        return new PlayerRecord(uuid, new HashMap<>(cooldowns), new HashSet<>(claims));
     }
 
     public void touch() {
-        this.lastAccess = System.currentTimeMillis();
-    }
-
-    public long getLastAccess() {
-        return lastAccess;
-    }
-
-    public boolean isOnline() {
-        return online;
+        lastAccess = System.currentTimeMillis();
     }
 
     public void setOnline(boolean online) {
         this.online = online;
         touch();
+    }
+
+    private static List<String> drain(Set<String> source) {
+        List<String> drained = new ArrayList<>(source.size());
+        for (String key : source) {
+            if (source.remove(key)) {
+                drained.add(key);
+            }
+        }
+        return drained;
     }
 }

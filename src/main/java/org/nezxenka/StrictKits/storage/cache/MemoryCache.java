@@ -1,29 +1,24 @@
 package org.nezxenka.StrictKits.storage.cache;
 
+import lombok.Value;
 import org.nezxenka.StrictKits.storage.PlayerRecord;
 
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
 
 public final class MemoryCache implements CacheProvider {
 
     private static final int MAX_ENTRIES = 20000;
     private static final int RETAIN_ENTRIES = MAX_ENTRIES * 3 / 4;
 
-    private final ConcurrentHashMap<UUID, Holder> entries = new ConcurrentHashMap<>();
+    private final Map<UUID, CachedRecord> entries = new ConcurrentHashMap<>();
     private final long ttlMillis;
 
     public MemoryCache(long ttlMillis) {
         this.ttlMillis = Math.max(1000L, ttlMillis);
-    }
-
-    @Override
-    public void initialize() {
     }
 
     @Override
@@ -38,27 +33,25 @@ public final class MemoryCache implements CacheProvider {
 
     @Override
     public PlayerRecord get(UUID uuid) {
-        Holder holder = entries.get(uuid);
-        if (holder == null) {
+        CachedRecord cached = entries.get(uuid);
+        if (cached == null) {
             return null;
         }
-        if (System.currentTimeMillis() - holder.stamp > ttlMillis) {
-            entries.remove(uuid, holder);
+        if (isExpired(cached, System.currentTimeMillis())) {
+            entries.remove(uuid, cached);
             return null;
         }
-        return RecordCodec.decode(uuid, holder.payload);
+        return cached.getRecord();
     }
 
     @Override
     public void put(PlayerRecord record) {
-        String payload = RecordCodec.encode(record);
-        if (payload == null) {
-            return;
-        }
         if (entries.size() >= MAX_ENTRIES) {
             evict();
         }
-        entries.put(record.getUuid(), new Holder(payload, System.currentTimeMillis()));
+        PlayerRecord snapshot = new PlayerRecord(
+                record.getUuid(), Map.copyOf(record.getCooldowns()), Set.copyOf(record.getClaims()));
+        entries.put(record.getUuid(), new CachedRecord(snapshot, System.currentTimeMillis()));
     }
 
     @Override
@@ -66,38 +59,30 @@ public final class MemoryCache implements CacheProvider {
         entries.clear();
     }
 
-    @Override
-    public void setKitInvalidationListener(Consumer<String> kitListener) {
+    private boolean isExpired(CachedRecord cached, long now) {
+        return now - cached.getStamp() > ttlMillis;
     }
 
     private void evict() {
         long now = System.currentTimeMillis();
-        int before = entries.size();
-        entries.entrySet().removeIf(entry -> now - entry.getValue().stamp > ttlMillis);
-        int removed = before - entries.size();
-        if (removed > 0) {
+        if (entries.values().removeIf(cached -> isExpired(cached, now))) {
             return;
         }
         int excess = entries.size() - RETAIN_ENTRIES;
         if (excess <= 0) {
             return;
         }
-        List<Map.Entry<UUID, Holder>> sorted = new ArrayList<>(entries.entrySet());
-        sorted.sort(Comparator.comparingLong(entry -> entry.getValue().stamp));
-        int limit = Math.min(excess, sorted.size());
-        for (int i = 0; i < limit; i++) {
-            Map.Entry<UUID, Holder> entry = sorted.get(i);
-            entries.remove(entry.getKey(), entry.getValue());
-        }
+        entries.entrySet().stream()
+                .sorted(Comparator.comparingLong(entry -> entry.getValue().getStamp()))
+                .limit(excess)
+                .toList()
+                .forEach(entry -> entries.remove(entry.getKey(), entry.getValue()));
     }
 
-    private static final class Holder {
-        private final String payload;
-        private final long stamp;
+    @Value
+    private static class CachedRecord {
 
-        private Holder(String payload, long stamp) {
-            this.payload = payload;
-            this.stamp = stamp;
-        }
+        PlayerRecord record;
+        long stamp;
     }
 }

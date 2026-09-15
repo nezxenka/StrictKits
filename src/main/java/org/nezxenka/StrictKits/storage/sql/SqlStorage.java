@@ -27,20 +27,24 @@ public abstract class SqlStorage implements StorageProvider {
     protected final String cooldownTable;
     protected final String claimTable;
 
+    private final String selectCooldowns;
+    private final String selectClaims;
+    private final String deleteKitCooldowns;
+    private final String deleteKitClaims;
+    private final String purgeCooldowns;
+
     private HikariDataSource dataSource;
-    private String selectCooldowns;
-    private String selectClaims;
-    private String upsertCooldown;
-    private String upsertClaim;
-    private String deleteKitCooldowns;
-    private String deleteKitClaims;
-    private String purgeCooldowns;
 
     protected SqlStorage(DatabaseConfig config, Logger logger) {
         this.config = config;
         this.logger = logger;
         this.cooldownTable = config.getTablePrefix() + "cooldowns";
         this.claimTable = config.getTablePrefix() + "claims";
+        this.selectCooldowns = "SELECT kit, used_at FROM " + cooldownTable + " WHERE uuid = ?";
+        this.selectClaims = "SELECT kit FROM " + claimTable + " WHERE uuid = ?";
+        this.deleteKitCooldowns = "DELETE FROM " + cooldownTable + " WHERE kit = ?";
+        this.deleteKitClaims = "DELETE FROM " + claimTable + " WHERE kit = ?";
+        this.purgeCooldowns = "DELETE FROM " + cooldownTable + " WHERE kit = ? AND used_at < ?";
     }
 
     protected abstract void configurePool(HikariConfig hikari);
@@ -62,17 +66,10 @@ public abstract class SqlStorage implements StorageProvider {
         hikari.setLeakDetectionThreshold(config.getPoolLeakDetectionThreshold());
         hikari.setInitializationFailTimeout(-1L);
         configurePool(hikari);
-        this.dataSource = new HikariDataSource(hikari);
+        dataSource = new HikariDataSource(hikari);
 
-        this.selectCooldowns = "SELECT kit, used_at FROM " + cooldownTable + " WHERE uuid = ?";
-        this.selectClaims = "SELECT kit FROM " + claimTable + " WHERE uuid = ?";
-        this.upsertCooldown = upsertCooldownStatement();
-        this.upsertClaim = upsertClaimStatement();
-        this.deleteKitCooldowns = "DELETE FROM " + cooldownTable + " WHERE kit = ?";
-        this.deleteKitClaims = "DELETE FROM " + claimTable + " WHERE kit = ?";
-        this.purgeCooldowns = "DELETE FROM " + cooldownTable + " WHERE kit = ? AND used_at < ?";
-
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
             for (String sql : schemaStatements()) {
                 statement.execute(sql);
             }
@@ -86,16 +83,12 @@ public abstract class SqlStorage implements StorageProvider {
         }
     }
 
-    protected Connection connection() throws SQLException {
-        return dataSource.getConnection();
-    }
-
     @Override
     public PlayerRecord load(UUID uuid) throws SQLException {
         Map<String, Long> cooldowns = new HashMap<>(8);
         Set<String> claims = new HashSet<>(8);
         String id = uuid.toString();
-        try (Connection connection = connection()) {
+        try (Connection connection = dataSource.getConnection()) {
             try (PreparedStatement statement = connection.prepareStatement(selectCooldowns)) {
                 statement.setString(1, id);
                 try (ResultSet result = statement.executeQuery()) {
@@ -118,12 +111,12 @@ public abstract class SqlStorage implements StorageProvider {
 
     @Override
     public void writeCooldowns(List<DataEntry> entries) throws SQLException {
-        write(upsertCooldown, entries);
+        write(upsertCooldownStatement(), entries);
     }
 
     @Override
     public void writeClaims(List<DataEntry> entries) throws SQLException {
-        write(upsertClaim, entries);
+        write(upsertClaimStatement(), entries);
     }
 
     private void write(String sql, List<DataEntry> entries) throws SQLException {
@@ -131,7 +124,7 @@ public abstract class SqlStorage implements StorageProvider {
             return;
         }
         int batchSize = config.getBatchSize();
-        try (Connection connection = connection()) {
+        try (Connection connection = dataSource.getConnection()) {
             boolean autoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -161,21 +154,22 @@ public abstract class SqlStorage implements StorageProvider {
 
     @Override
     public void deleteKit(String kit) throws SQLException {
-        try (Connection connection = connection()) {
-            try (PreparedStatement statement = connection.prepareStatement(deleteKitCooldowns)) {
-                statement.setString(1, kit);
-                statement.executeUpdate();
-            }
-            try (PreparedStatement statement = connection.prepareStatement(deleteKitClaims)) {
-                statement.setString(1, kit);
-                statement.executeUpdate();
-            }
+        try (Connection connection = dataSource.getConnection()) {
+            deleteByKit(connection, deleteKitCooldowns, kit);
+            deleteByKit(connection, deleteKitClaims, kit);
+        }
+    }
+
+    private static void deleteByKit(Connection connection, String sql, String kit) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, kit);
+            statement.executeUpdate();
         }
     }
 
     @Override
     public int purgeCooldowns(String kit, long cutoff) throws SQLException {
-        try (Connection connection = connection();
+        try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(purgeCooldowns)) {
             statement.setString(1, kit);
             statement.setLong(2, cutoff);
