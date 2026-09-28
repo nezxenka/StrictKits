@@ -33,6 +33,15 @@ player:
     entry-ready: "&a:kit:"
     entry-cooldown: "&c:kit:"
 
+time:
+  separator: " "
+  years: "г"
+  months: "мес"
+  days: "д"
+  hours: "ч"
+  minutes: "мин"
+  seconds: "с"
+
 gui:
   title: "&7Киты: :page:/:pages:"
   preview-title: "&7Просмотр кита: :kit:"
@@ -82,12 +91,11 @@ admin:
   inventory-updated: "&aВы успешно установили инвентарь набора &e:kit:"
   cooldown-not-a-number: "&cЗадержка должна быть числом"
   cooldown-negative: "&cЗадержка не может быть отрицательной"
-  cooldown-too-large: "&cЗадержка не может превышать &e:seconds:s"
-  cooldown-updated: "&aЗадержка набора &e:kit: &aустановлена на &c:seconds:s"
+  cooldown-too-large: "&cЗадержка не может превышать &e:seconds: сек."
+  cooldown-updated: "&aЗадержка набора &e:kit: &aустановлена на &c:seconds: сек."
   flag-updated: "&aПараметр &e:flag: &aнабора &e:kit: &aустановлен на &c:value:"
   icon-hand-empty: "&cВозьмите предмет в руку"
   icon-without-name: "&cОшибка, у этой иконки нет имени"
-  icon-already-used: "&cОшибка, это уже значок набора &e:kit:"
   icon-updated: "&aВы успешно установили значок набора &e:kit:"
   permission-invalid: "&cНедопустимое право, разрешены латиница, цифры, точка, дефис и подчёркивание"
   permission-updated: "&aПраво набора &e:kit: &aустановлено на &e:permission:"
@@ -96,6 +104,6 @@ admin:
   reloaded: "&aКонфигурация перезагружена, китов: &e:kits:"
   version: "&aВерсия: &e:version:"
   stats:
-    - "&aХранилище: &e:storage: &a| Кэш: &e:cache:"
-    - "&aВ памяти: &e:loaded: &a| попаданий в кэш: &e:hits:&a/&e:lookups: &a(&e:ratio:%&a) | записей в БД: &e:writes:"
+    - "&aХранилище: &e:storage:"
+    - "&aВ памяти: &e:loaded: &a| записей в БД: &e:writes:"
     - "&aКитов: &e:kits:"

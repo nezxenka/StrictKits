@@ -1,6 +1,6 @@
 name: StrictKits
 version: "${version}"
-main: org.nezxenka.StrictKits.Main
+main: org.nezxenka.strictkits.StrictKits
 description: Переписанный GreatKits
 api-version: "${apiVersion}"
 softdepend: [PlaceholderAPI]

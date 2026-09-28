@@ -11,7 +11,7 @@ def paperApi = isLegacy
         : 'io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT'
 
 group = 'org.nezxenka'
-version = '2.3'
+version = '3.0'
 
 java {
     sourceCompatibility = JavaVersion.toVersion(javaRelease)
@@ -37,15 +37,9 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok:1.18.48'
 
     shaded 'com.zaxxer:HikariCP:6.2.1'
-    shaded 'org.xerial:sqlite-jdbc:3.49.1.0'
 
     shaded('com.mysql:mysql-connector-j:9.4.0') {
         exclude group: 'com.google.protobuf'
-    }
-
-    shaded('redis.clients:jedis:5.2.0') {
-        exclude group: 'org.slf4j'
-        exclude group: 'com.google.code.gson'
     }
 }
 
@@ -73,10 +67,8 @@ shadowJar {
 
     mergeServiceFiles()
 
-    relocate 'com.zaxxer.hikari', 'org.nezxenka.StrictKits.libs.hikari'
-    relocate 'redis.clients', 'org.nezxenka.StrictKits.libs.redis'
-    relocate 'org.apache.commons.pool2', 'org.nezxenka.StrictKits.libs.pool2'
-    relocate 'com.mysql', 'org.nezxenka.StrictKits.libs.mysql'
+    relocate 'com.zaxxer.hikari', 'org.nezxenka.strictkits.libs.hikari'
+    relocate 'com.mysql', 'org.nezxenka.strictkits.libs.mysql'
 
     exclude 'META-INF/*.SF'
     exclude 'META-INF/*.DSA'
@@ -88,12 +80,6 @@ shadowJar {
     exclude 'META-INF/native-image/**'
     exclude 'META-INF/versions/**'
     exclude 'module-info.class'
-
-    exclude 'org/sqlite/native/Linux-Android/**'
-    exclude 'org/sqlite/native/FreeBSD/**'
-    exclude 'org/sqlite/native/Linux/armv6/**'
-    exclude 'org/sqlite/native/Windows/x86/**'
-    exclude 'org/sqlite/native/Windows/armv7/**'
 
     exclude 'com/mysql/cj/xdevapi/**'
     exclude 'com/mysql/cj/x/**'
